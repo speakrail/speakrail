@@ -12,13 +12,12 @@ reply saved at its end), an early start (undo + context rollback), the silence l
 import asyncio, json, os, sys, tempfile, time
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent.parent / "app"
-sys.path[:0] = [str(HERE)]
+sys.path[:0] = [str(Path(__file__).resolve().parent.parent / "src")]
 import aiohttp
 from aiohttp import web
-import protocol as P
-from cascade import Cfg
-import session as MS
+from speakrail.harness import protocol as P
+from speakrail.harness.cascade import Cfg
+from speakrail.harness import session as MS
 
 PORT = 18001
 DECIDE_DELAY = [0.03]                                      # seconds per decision on a <complete> (a scenario slows it)
@@ -384,7 +383,7 @@ async def scenario_claude():
 async def scenario_frontier():
     """ask_frontier on a mock GLM: task_id at once, the answer later as the trained async-result shape {answer, confidence,
     task_id}, then the report; the cost goes to frontier_tasks.jsonl; the Facts line names the session's tools"""
-    import frontier_tool as FT
+    from speakrail.harness import frontier_tool as FT
     FT.ENDPOINT = f"http://127.0.0.1:{PORT}/v1/chat/completions"; os.environ["FIREWORKS_API_KEY"] = "test-fw"
     d = Driver(frontier=True); await d.start()
     await turn(d, "Ask", "the", "bigger", "model.")

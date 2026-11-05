@@ -1,6 +1,6 @@
 # Speakrail ASR: audio.cpp (speakrail fork, branch turn-head) built for Voxtral realtime only, plus the bridge.
 #
-#   docker build -t speakrail-asr services/asr
+#   docker build -t speakrail-asr engines/asr/audiocpp
 #   docker run --gpus all -v ./models:/models -e ASR_HOST=0.0.0.0 -p 127.0.0.1:8765:8765 speakrail-asr
 
 ARG CUDA_VERSION=12.9.2

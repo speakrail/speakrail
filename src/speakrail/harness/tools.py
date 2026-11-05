@@ -24,13 +24,15 @@ import zoneinfo
 
 import aiohttp
 
+from ..config import CFG
+
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "tools_catalog.json")) as _f:
     CAT = json.load(_f)["tools"]
 LOCAL_TOOLS = ["get_weather", "record_note", "list_add", "todo_add", "counter", "stopwatch", "unit_convert", "calculator",
                "dice_roll", "get_time"]
 STATEFUL_TOOLS = {"record_note", "list_add", "todo_add", "counter", "stopwatch"}   # side effects: not run on an unadopted spec
-DEFAULT_CITY = os.environ.get("HOME_CITY", "London")
-DEFAULT_TZ = os.environ.get("HOME_TIMEZONE", "Europe/London")
+DEFAULT_CITY = CFG.home_city
+DEFAULT_TZ = CFG.home_timezone
 # reset_chat: the session's own tool (not in the training catalog), run by MicroSession, never by the ToolBox. The
 # harness enforces the confirmation: see MicroSession._reset_tool
 RESET_TOOL = "reset_chat"

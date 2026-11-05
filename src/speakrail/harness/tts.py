@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import os
 import queue
 import re
 import threading
 import time
+
+from ..config import CFG
 
 
 class Segment:
@@ -130,7 +131,7 @@ class BreezeWorker(TTSWorker):
     device = "cuda"
 
     def __init__(self, ref: str, loop: asyncio.AbstractEventLoop, on_audio, on_segment_done,
-                 url: str = os.environ.get("TTS_URL", "http://127.0.0.1:7860/v1/audio/speech"), seed: int = 42, instruction: str | None = None,
+                 url: str = CFG.tts_url or "http://127.0.0.1:7860/v1/audio/speech", seed: int = 42, instruction: str | None = None,
                  cfg_scale: float = 1.0):
         super().__init__(loop, on_audio, on_segment_done)
         self.ref = ref
@@ -186,8 +187,8 @@ class PocketWorker(TTSWorker):
     device = "audio.cpp"
 
     def __init__(self, voice: str, loop: asyncio.AbstractEventLoop, on_audio, on_segment_done,
-                 url: str = os.environ.get("TTS_URL", "http://127.0.0.1:8091/v1/audio/speech"),
-                 model: str = os.environ.get("TTS_MODEL", "pocket-tts")):
+                 url: str = CFG.tts_url or "http://127.0.0.1:8091/v1/audio/speech",
+                 model: str = CFG.tts_model):
         super().__init__(loop, on_audio, on_segment_done)
         self.url, self.model, self.voice = url, model, voice
         self.voice_args = pocket_voice_args(voice)        # a clone: the server caches the prepared voice state

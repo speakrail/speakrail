@@ -45,16 +45,17 @@ import datetime
 import time
 from dataclasses import dataclass, field
 
-import protocol as P                                        # noqa: E402
-from tokens_v1 import SIL_LADDER_S                          # noqa: E402
+from ..config import CFG                                    # noqa: E402
+from . import protocol as P                                        # noqa: E402
+from .tokens_v1 import SIL_LADDER_S                          # noqa: E402
 
-from backchannel import is_backchannel, normalize           # noqa: E402
-from cascade import Session, Turn                           # noqa: E402
-from tts import Segment, strip_tags           # noqa: E402
-from tools import CAT, DEFAULT_CITY, LOCAL_TOOLS, RESET_TOOL, RESET_TOOL_SPEC, STATEFUL_TOOLS, ToolBox   # noqa: E402
-from llm_engine import Engine                                # noqa: E402
-from claude_tool import CLAUDE_TOOL, CLAUDE_TOOL_SPEC, ClaudeTasks   # noqa: E402
-from frontier_tool import FRONTIER_TOOL, FrontierTasks   # noqa: E402
+from .backchannel import is_backchannel, normalize           # noqa: E402
+from .cascade import Session, Turn                           # noqa: E402
+from .tts import Segment, strip_tags           # noqa: E402
+from .tools import CAT, DEFAULT_CITY, LOCAL_TOOLS, RESET_TOOL, RESET_TOOL_SPEC, STATEFUL_TOOLS, ToolBox   # noqa: E402
+from .llm_engine import Engine                                # noqa: E402
+from .claude_tool import CLAUDE_TOOL, CLAUDE_TOOL_SPEC, ClaudeTasks   # noqa: E402
+from .frontier_tool import FRONTIER_TOOL, FrontierTasks   # noqa: E402
 
 TTS_RATE = 24000
 TOOL_RESPONSE_OPEN = 50
@@ -93,7 +94,7 @@ PERSONAS = {                                    # the turn-taking sentences and 
              "for it. " + _BEHAVIOUR),
 }
 # the date is not in the prose: the prompt ends with protocol.date_line (date and time of day), as in training
-DEFAULT_TZ = os.environ.get("HOME_TIMEZONE", "Europe/London")
+DEFAULT_TZ = CFG.home_timezone
 # reset_chat confirmation: the user's turn must say yes (and nothing like no / wait / cancel) after we asked
 RESET_YES_RE = re.compile(r"\b(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|confirm|confirmed|absolutely|please do|of course|correct)\b", re.I)
 RESET_NO_RE = re.compile(r"\b(no|nope|don't|do not|not|cancel|stop|wait|never mind)\b", re.I)
@@ -221,12 +222,12 @@ class Reply:
 # (confirmed), else it is replaced by a fresh speculation from that peek. The endpoint rule's release waits for the
 # confirmation. An early speculation survives ANT4_AGE_S of continued speech. Empty ANT4 = off (old heads have no
 # anticipation outputs; p shorter than the index never fires).
-ANT4 = [(int(a), float(b)) for a, b in (x.split(":") for x in os.environ["ANT4"].split(","))] if os.environ.get("ANT4") else []
-ANT4_AGE_S = float(os.environ.get("ANT4_AGE_S", "0.5"))
+ANT4 = CFG.ant4_triggers
+ANT4_AGE_S = CFG.ant4_age_s
 # ANT4_CONFIRM_SKIP (default on): today's trigger confirms an early speculation without a second peek when nothing changed
 # since the early one: its fork is built and no head frame past the early peek's coverage heard speech (a new word
 # discards the speculation anyway). Each peek stalls the live decoder, so the second one delayed the endpoint.
-ANT4_CONFIRM_SKIP = os.environ.get("ANT4_CONFIRM_SKIP", "1") == "1"
+ANT4_CONFIRM_SKIP = CFG.ant4_confirm_skip
 
 
 class Spec:
@@ -1202,7 +1203,7 @@ class MicroSession(Session):
             h.phrase_cache = None
             if h.engine in ("breeze", "pocket") and self.m.phrase_cache:
                 try:
-                    from phrase_cache import PhraseCache, PocketPhraseCache
+                    from .phrase_cache import PhraseCache, PocketPhraseCache
                     w = h.worker
                     h.phrase_cache = (PhraseCache(w.ref, w.seed, w.cfg_scale, w.instruction) if h.engine == "breeze"
                                       else PocketPhraseCache(w.voice, w.model)).load()

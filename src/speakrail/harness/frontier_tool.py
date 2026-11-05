@@ -15,6 +15,8 @@ import time
 
 import aiohttp
 
+from ..config import secret
+
 FRONTIER_TOOL = "ask_frontier"
 ENDPOINT = "https://api.fireworks.ai/inference/v1/chat/completions"
 MODEL = "accounts/fireworks/models/glm-5p3-flash"
@@ -31,7 +33,7 @@ MAX_ANSWER_CHARS = 1500
 
 
 def _key():
-    return os.environ.get("FIREWORKS_API_KEY", "")
+    return secret("FIREWORKS_API_KEY")
 
 
 class FrontierTasks:

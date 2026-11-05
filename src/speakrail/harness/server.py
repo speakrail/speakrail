@@ -19,8 +19,9 @@ import time
 
 from aiohttp import web, WSMsgType
 
+from ..config import CFG, secret
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
 HUB = None
 ARGS = None
 
@@ -32,11 +33,11 @@ def page(path):
 
 
 def session_cfg(q):
-    from cascade import Cfg
+    from .cascade import Cfg
     barge = {"0": "off", "1": "word"}.get(q.get("barge", ARGS.barge), q.get("barge", ARGS.barge))
-    return Cfg(asr_url=os.environ.get("ASR_URL", "ws://127.0.0.1:8765/v1/transcribe"), barge_in=barge,
+    return Cfg(asr_url=CFG.asr_url, barge_in=barge,
                voice=ARGS.voice, silence_ms=int(q.get("silence_ms", ARGS.silence_ms)),
-               search=search_for(q), spec=os.environ.get("SPEC", "1") == "1")   # SPEC=0: no speculation (one peek at the endpoint)
+               search=search_for(q), spec=CFG.spec, peek_frames=CFG.peek_frames)   # SPEC=0: no speculation (one peek at the endpoint)
 
 
 def search_for(q):
@@ -47,13 +48,13 @@ def search_for(q):
 
 
 def micro_cfg(q, cfg):
-    from claude_tool import check_key
-    from session import MicroCfg
+    from .claude_tool import check_key
+    from .session import MicroCfg
     key_ok = check_key(q.get("ck"))
     # end-of-turn rule: P(fire) >= TURN_TAU on TURN_K frames in a row (0.9 x 3; the all_ant80 head was benchmarked with K=1)
-    return MicroCfg(url=ARGS.mt_url, lora=os.environ.get("LLM_LORA", "speakrail"),
-                    tau=float(os.environ.get("TURN_TAU", "0.9")), k=env_int("TURN_K", 3),
-                    think_model=os.environ.get("LLM_BASE_MODEL", "speakrail-base"), undo_words=ARGS.undo_words, tool_hold_ms=ARGS.tool_hold_ms,
+    return MicroCfg(url=ARGS.mt_url, lora=CFG.llm_lora,
+                    tau=CFG.turn_tau, k=CFG.turn_k,
+                    think_model=CFG.llm_base_model, undo_words=ARGS.undo_words, tool_hold_ms=ARGS.tool_hold_ms,
                     persona=ARGS.persona,
                     allow_interject=not ARGS.no_interject, silence_fallback_ms=cfg.silence_ms,
                     notes=ARGS.notes, phrase_cache=not ARGS.no_phrase_cache, safety_yield_s=ARGS.safety_yield_s,
@@ -88,10 +89,10 @@ async def ws_handler(request):
     stamp = time.strftime("%Y%m%d-%H%M%S")
     if ARGS.stub:
         from types import SimpleNamespace
-        from stub import StubSession
+        from .stub import StubSession
         sess = StubSession(SimpleNamespace(delay_ms=480, barge_in=q.get("barge", ARGS.barge)), send)
     else:
-        from session import MicroSession
+        from .session import MicroSession
         cfg = session_cfg(q)
         log_dir = os.path.join(ARGS.sessions_dir, f"session-{stamp}") if ARGS.sessions_dir else None
         sess = MicroSession(cfg, HUB, send, log_dir=log_dir, mcfg=micro_cfg(q, cfg))
@@ -139,49 +140,45 @@ async def ws_handler(request):
 async def on_startup(app):
     global HUB
     if not ARGS.stub:
-        from cascade import TTSHub
+        from .cascade import TTSHub
         HUB = TTSHub(asyncio.get_running_loop(), ARGS.voice, ARGS.tts_engine)
         await HUB.wait_ready()
     print(f"speakrail{' (stub mode, no models)' if ARGS.stub else ''}: open http://{ARGS.host}:{ARGS.port}/", flush=True)
-
-
-def env_int(name, default):
-    return int(os.environ.get(name, default))
 
 
 def main():
     global ARGS
     ap = argparse.ArgumentParser()
     ap.add_argument("--stub", action="store_true", help="no models: fake ASR / turn head / LLM / TTS, to try the UI")
-    ap.add_argument("--port", type=int, default=env_int("UI_PORT", 8080))
-    ap.add_argument("--host", default=os.environ.get("UI_HOST", "127.0.0.1"))
-    ap.add_argument("--tts-engine", default=os.environ.get("TTS_ENGINE", "breeze"), choices=["breeze", "pocket"],
+    ap.add_argument("--port", type=int, default=CFG.ui_port)
+    ap.add_argument("--host", default=CFG.ui_host)
+    ap.add_argument("--tts-engine", default=CFG.tts_engine, choices=["breeze", "pocket"],
                     help="TTS backend at TTS_URL: breeze (Breeze TTS 2 API) or pocket (Pocket TTS on audiocpp_server, model TTS_MODEL)")
-    ap.add_argument("--voice", default=os.environ.get("VOICE", ""),
+    ap.add_argument("--voice", default=CFG.voice,
                     help="breeze: reference wav, its transcript next to it as .txt; pocket: a voice name (alba, ...) or a wav to clone")
-    ap.add_argument("--persona", default=os.environ.get("PERSONA", "nova"), choices=["nova"])
-    ap.add_argument("--sessions-dir", default=os.environ.get("SESSIONS_DIR", ""),
+    ap.add_argument("--persona", default=CFG.persona, choices=["nova"])
+    ap.add_argument("--sessions-dir", default=CFG.sessions_dir,
                     help="save each session's event log, context and audio recording here ('' = off, the default)")
     # turn taking
-    ap.add_argument("--silence-ms", type=int, default=env_int("SILENCE_MS", 1000),
+    ap.add_argument("--silence-ms", type=int, default=CFG.silence_ms,
                     help="silence fallback in ms after words with no head fire (0 = only the turn head ends a turn)")
     ap.add_argument("--barge", default="duck", choices=["off", "duck", "word", "head"],
                     help="user speaks over a reply: duck = lower our volume, the model decides")
     ap.add_argument("--safety-yield-s", type=float, default=1.5, help="yield if the model keeps listening through this much speech (0 = off)")
     ap.add_argument("--undo-words", type=int, default=2, help="undo a reply if the user goes on while <= this many of its words played")
     # the model
-    ap.add_argument("--mt-url", default=os.environ.get("LLM_URL", "http://127.0.0.1:8001/v1/completions"))
-    ap.add_argument("--notes", action="store_true", default=os.environ.get("NOTES", "1") == "1",
+    ap.add_argument("--mt-url", default=CFG.llm_url)
+    ap.add_argument("--notes", action="store_true", default=CFG.notes,
                     help="listening notes: the base model takes notes while the user speaks")
     ap.add_argument("--no-notes", dest="notes", action="store_false")
-    ap.add_argument("--no-interject", action="store_true", default=os.environ.get("INTERJECT", "1") == "0",
+    ap.add_argument("--no-interject", action="store_true", default=not CFG.interject,
                     help="never offer <interject> (short remarks while the user keeps talking)")
     ap.add_argument("--no-phrase-cache", action="store_true", help="never play a first clause from pre-rendered clips")
     # tools
-    ap.add_argument("--tool-hold-ms", type=int, default=env_int("TOOL_HOLD_MS", 600), help="run tool calls only after this much quiet (0 = off)")
-    ap.add_argument("--search", default=os.environ.get("SEARCH", "off"), choices=["searxng", "serper", "brave", "off"],
+    ap.add_argument("--tool-hold-ms", type=int, default=CFG.tool_hold_ms, help="run tool calls only after this much quiet (0 = off)")
+    ap.add_argument("--search", default=CFG.search, choices=["searxng", "serper", "brave", "off"],
                     help="web search backend for the web_search tool (off by default)")
-    ap.add_argument("--frontier", action="store_true", default=bool(os.environ.get("FIREWORKS_API_KEY")),
+    ap.add_argument("--frontier", action="store_true", default=bool(secret("FIREWORKS_API_KEY")),
                     help="offer ask_frontier (a larger model on Fireworks, paid; on when FIREWORKS_API_KEY is set)")
     ap.add_argument("--claude", action="store_true", help="offer claude_code (Claude Code on this machine: a shell!) to sessions "
                     "whose page URL carries ?ck=<SPEAKRAIL_ACCESS_KEY>")

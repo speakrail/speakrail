@@ -18,6 +18,8 @@ import shutil
 import signal
 import time
 
+from ..config import secret
+
 CLAUDE_TOOL = "claude_code"
 CLAUDE_TOOL_SPEC = {
     "domain": "background_ai", "mode": "async", "args": {"task": "string", "context?": "string"},
@@ -40,7 +42,7 @@ MAX_ANSWER_CHARS = 1500
 
 
 def check_key(given: str | None) -> bool:
-    key = os.environ.get("SPEAKRAIL_ACCESS_KEY", "").strip()
+    key = secret("SPEAKRAIL_ACCESS_KEY").strip()
     return bool(key) and bool(given) and given.strip() == key
 
 

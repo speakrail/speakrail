@@ -3,7 +3,7 @@
 *.key
 *_key
 
-# Model weights and caches (fetched by services/model-init into the models volume)
+# Model weights and caches (fetched by deploy/model-init into the models volume)
 models/
 hf_cache/
 *.safetensors
@@ -25,7 +25,7 @@ run/
 *.mp3
 *.ogg
 *.webm
-!app/voices/*.wav
+!src/speakrail/harness/voices/*.wav
 
 # Demo videos live in GitHub attachments or YouTube, not in git
 *.mp4

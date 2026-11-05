@@ -28,8 +28,9 @@ import numpy as np
 import websockets
 from scipy.signal import resample_poly
 
-from backchannel import normalize
-from tts import make_worker
+from ..config import CFG, secret
+from .backchannel import normalize
+from .tts import make_worker
 
 SAMPLE_RATE = 16000
 
@@ -43,7 +44,7 @@ class Cfg:
     mic_rms: float = 0.003           # measurement only: "mic had energy" (-50 dBFS)
     voice: str = ""                  # Breeze reference wav; its transcript sits next to it as .txt
     search: str = "off"              # off | searxng (:8888) | serper (SERPER_API_KEY) | brave (BRAVE_API_KEY): the web_search tool
-    search_url: str = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8888/search")
+    search_url: str = CFG.searxng_url
     search_engines: str = "google,brave,duckduckgo,google cse"   # SearXNG upstreams per query. Each of them rate-limits a
                                      # server IP after a burst and comes back hours later, so ask all of them: suspended ones
                                      # are skipped instantly. "google cse" = the Programmable Search endpoint (separate quota).
@@ -506,7 +507,7 @@ class Session:
             if self.cfg.search == "serper":
                 # Serper (Google results, SERPER_API_KEY)
                 async with self.http.post("https://google.serper.dev/search", json={"q": query, "num": self.cfg.search_results},
-                                          headers={"X-API-KEY": os.environ.get("SERPER_API_KEY", "")}, timeout=timeout) as r:
+                                          headers={"X-API-KEY": secret("SERPER_API_KEY")}, timeout=timeout) as r:
                     if r.status != 200:
                         raise RuntimeError(f"serper {r.status}")
                     j = await r.json()
@@ -518,7 +519,7 @@ class Session:
             elif self.cfg.search == "brave":
                 async with self.http.get("https://api.search.brave.com/res/v1/web/search",
                                          params={"q": query, "count": self.cfg.search_results, "text_decorations": "false"},
-                                         headers={"X-Subscription-Token": os.environ.get("BRAVE_API_KEY", ""),
+                                         headers={"X-Subscription-Token": secret("BRAVE_API_KEY"),
                                                   "Accept": "application/json"}, timeout=timeout) as r:
                     if r.status != 200:
                         raise RuntimeError(f"brave {r.status}")

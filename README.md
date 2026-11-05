@@ -86,7 +86,7 @@ Everything is in `.env` (see [.env.example](.env.example)):
 |---|---|---|
 | `UI_HOST` / `UI_PORT` | `127.0.0.1` / `8080` | where the web UI listens |
 | `LLM_GPU_MEMORY_UTILIZATION` | `0.48` | lower it if the card also drives your display |
-| `VOICE` | `female_a.wav` | a reference clip in `app/voices/` with its transcript next to it |
+| `VOICE` | `female_a.wav` | a reference clip in `src/speakrail/harness/voices/` with its transcript next to it |
 | `HOME_CITY` / `HOME_TIMEZONE` | London | "home" for the weather and time tools |
 | `SILENCE_MS` | `1000` | silence that ends your turn when the head is unsure |
 | `NOTES` | `1` | listening notes (better answers to long requests) |

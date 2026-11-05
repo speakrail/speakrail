@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "speakrail"
+dynamic = ["version"]
+description = "A full-duplex voice assistant"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.14,<4",
+    "numpy>=2.3,<3",
+    "scipy>=1.18,<2",
+    "websockets>=17,<18",
+    "tokenizers>=0.22,<0.23",
+    "requests>=2.34,<3",
+    "jinja2>=3.1,<4",
+]
+
+[tool.hatch.version]
+path = "src/speakrail/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/speakrail"]

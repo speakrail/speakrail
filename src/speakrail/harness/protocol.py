@@ -26,14 +26,15 @@ Layout (Gemma 4 native turns; decisions from tokens_v1):
   Not saved: <listen>, <listen_muted>, <continue>, <yield>. No thinking channel is ever opened (<|channel> banned).
 """
 from __future__ import annotations
-import json, os, re
+import json, re
 from pathlib import Path
 
 HERE = Path(__file__).parent
 # tokenizer v1.2 (Gemma 4 + the 22 speakrail tokens), written by model-init next to the model
-TOKENIZER_DIR = Path(os.environ.get("SPEAKRAIL_TOKENIZER_DIR", HERE.parent / "models" / "speakrail-gemma" / "tokenizer"))
-from tokens_v1 import IDS, TURN_CLOSE, TURN_OPEN, TOOL_RESPONSE_OPEN, sil_token   # noqa: E402
-import toolschema                                                                   # noqa: E402
+from ..config import CFG                                                            # noqa: E402
+TOKENIZER_DIR = Path(CFG.tokenizer_dir)
+from .tokens_v1 import IDS, TURN_CLOSE, TURN_OPEN, TOOL_RESPONSE_OPEN, sil_token   # noqa: E402
+from . import toolschema                                                                   # noqa: E402
 
 LISTEN, LISTEN_MUTED, INTERRUPT, CONTINUE, YIELD = (IDS[t] for t in ("<listen>", "<listen_muted>", "<interrupt>", "<continue>", "<yield>"))
 INTERJECT, INTERJECT_END = IDS["<interject>"], IDS["</interject>"]   # v3: live tasks (1-4 words, the speaker keeps the turn)

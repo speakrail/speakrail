@@ -15,13 +15,14 @@ another voice's clips.
     python3 phrase_cache.py status --voice <ref.wav>
 """
 from __future__ import annotations
-import argparse, hashlib, json, os, time
+import argparse, hashlib, json, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = Path(os.environ.get("PHRASE_CACHE_DIR", HERE.parent / "run" / "phrase_cache"))
+from ..config import CFG                     # noqa: E402
+ROOT = Path(CFG.phrase_cache_dir)
 SR = 24000
-BREEZE_URL = os.environ.get("TTS_URL", "http://127.0.0.1:7860/v1/audio/speech")
+BREEZE_URL = CFG.tts_url or "http://127.0.0.1:7860/v1/audio/speech"
 FIRST_CLAUSE_CHARS = 3                       # session.MicroCfg.first_clause_chars
 LEAD_KEEP_S = 0.03                           # leading silence kept before the first voiced sample
 SILENCE = 300                                # |int16| below this is silence (about -40 dBFS)
@@ -48,7 +49,7 @@ def norm(s: str) -> str:
 # ------------------------------------------------------------------ the phrase list
 class PhraseCache:
     def __init__(self, ref: str, seed: int = 42, cfg_scale: float = 1.0, instruction: str | None = None,
-                 engine: str = "breeze2-slim-int8:" + os.environ.get("BREEZE_INT8", "backbone,text_encoder,depth")):
+                 engine: str = "breeze2-slim-int8:" + CFG.breeze_int8):
         # engine: the TTS build the clips come from (the server runs Breeze 2 slim, int8 backbone,text_encoder,depth):
         # part of the voice key, so clips from another build are never served
         self.ref, self.seed, self.cfg_scale, self.instruction, self.engine = ref, seed, cfg_scale, instruction, engine
@@ -124,8 +125,8 @@ class PocketPhraseCache(PhraseCache):
     The key covers the engine, the server's model id and the voice (a wav's bytes, or a voice name), so Pocket clips
     never mix with Breeze clips or with another Pocket voice. Pocket samples too: a clip is one take, as with Breeze."""
 
-    def __init__(self, voice: str, model: str = os.environ.get("TTS_MODEL", "pocket-tts")):
-        from tts import pocket_voice_args
+    def __init__(self, voice: str, model: str = CFG.tts_model):
+        from .tts import pocket_voice_args
         self.voice, self.model, self.engine = voice, model, f"pocket:{model}"
         self.voice_args = pocket_voice_args(voice)
         ident = hashlib.sha256(open(voice, "rb").read()).hexdigest() if voice.endswith(".wav") else voice
@@ -138,7 +139,7 @@ class PocketPhraseCache(PhraseCache):
 
     def _render_one(self, text: str, url: str = BREEZE_URL) -> bytes:
         import requests
-        from tts import pocket_body
+        from .tts import pocket_body
         for _ in range(500):                                         # 503: the model is busy with another request
             r = requests.post(url, json=pocket_body(self.model, text, self.voice_args), stream=True, timeout=(5, 60))
             if r.status_code != 503: break
@@ -156,7 +157,7 @@ def phrases_list():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["render", "status"])
-    ap.add_argument("--engine", default=os.environ.get("TTS_ENGINE", "breeze"), choices=["breeze", "pocket"])
+    ap.add_argument("--engine", default=CFG.tts_engine, choices=["breeze", "pocket"])
     ap.add_argument("--voice", default="", help="breeze: reference wav (its transcript next to it as .txt); pocket: a voice name or a wav")
     ap.add_argument("--urls", default=BREEZE_URL, help="comma-separated TTS servers to render on in parallel")
     a = ap.parse_args()

@@ -27,7 +27,7 @@ services:
   # downloads and patches the models, then exits; the GPU services wait for it
   model-init:
     image: docker.io/speakrail/model-init:${SPEAKRAIL_VERSION:-0.1.0}
-    build: services/model-init
+    build: deploy/model-init
     volumes:
       - ${MODELS_DIR:-./models}:/models
     environment:
@@ -38,7 +38,7 @@ services:
   asr:
     image: docker.io/speakrail/voxtral-stt-server:${SPEAKRAIL_VERSION:-0.1.0}
     build:
-      context: services/asr
+      context: engines/asr/audiocpp
       args:
         CUDA_ARCHS: ${ASR_CUDA_ARCHS:-86;89}
     <<: *gpu
@@ -53,7 +53,7 @@ services:
   # Breeze TTS 2 (research and non-commercial use only)
   tts:
     image: docker.io/speakrail/breeze-tts-server:${SPEAKRAIL_VERSION:-0.1.0}
-    build: services/tts
+    build: engines/tts/breeze
     <<: *gpu
     volumes: *models-ro
     depends_on:
@@ -101,7 +101,9 @@ services:
   # the harness and the web UI
   app:
     image: docker.io/speakrail/app:${SPEAKRAIL_VERSION:-0.1.0}
-    build: app
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
     ports:
       - ${UI_HOST:-127.0.0.1}:${UI_PORT:-8080}:8080
     volumes:
@@ -135,7 +137,7 @@ services:
     image: docker.io/searxng/searxng:2026.9.19-e831fc2a1
     profiles: [search]
     volumes:
-      - ./services/search/settings.yml:/etc/searxng/settings.yml:ro
+      - ./deploy/search/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me}
     restart: unless-stopped
