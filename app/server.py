@@ -36,7 +36,7 @@ def session_cfg(q):
     barge = {"0": "off", "1": "word"}.get(q.get("barge", ARGS.barge), q.get("barge", ARGS.barge))
     return Cfg(asr_url=os.environ.get("ASR_URL", "ws://127.0.0.1:8765/v1/transcribe"), barge_in=barge,
                voice=ARGS.voice, silence_ms=int(q.get("silence_ms", ARGS.silence_ms)),
-               search=search_for(q))
+               search=search_for(q), spec=os.environ.get("SPEC", "1") == "1")   # SPEC=0: no speculation (one peek at the endpoint)
 
 
 def search_for(q):
@@ -50,7 +50,9 @@ def micro_cfg(q, cfg):
     from claude_tool import check_key
     from session import MicroCfg
     key_ok = check_key(q.get("ck"))
+    # end-of-turn rule: P(fire) >= TURN_TAU on TURN_K frames in a row (0.9 x 3; the all_ant80 head was benchmarked with K=1)
     return MicroCfg(url=ARGS.mt_url, lora=os.environ.get("LLM_LORA", "speakrail"),
+                    tau=float(os.environ.get("TURN_TAU", "0.9")), k=env_int("TURN_K", 3),
                     think_model=os.environ.get("LLM_BASE_MODEL", "speakrail-base"), undo_words=ARGS.undo_words, tool_hold_ms=ARGS.tool_hold_ms,
                     persona=ARGS.persona,
                     allow_interject=not ARGS.no_interject, silence_fallback_ms=cfg.silence_ms,
@@ -138,7 +140,7 @@ async def on_startup(app):
     global HUB
     if not ARGS.stub:
         from cascade import TTSHub
-        HUB = TTSHub(asyncio.get_running_loop(), ARGS.voice)
+        HUB = TTSHub(asyncio.get_running_loop(), ARGS.voice, ARGS.tts_engine)
         await HUB.wait_ready()
     print(f"speakrail{' (stub mode, no models)' if ARGS.stub else ''}: open http://{ARGS.host}:{ARGS.port}/", flush=True)
 
@@ -153,7 +155,10 @@ def main():
     ap.add_argument("--stub", action="store_true", help="no models: fake ASR / turn head / LLM / TTS, to try the UI")
     ap.add_argument("--port", type=int, default=env_int("UI_PORT", 8080))
     ap.add_argument("--host", default=os.environ.get("UI_HOST", "127.0.0.1"))
-    ap.add_argument("--voice", default=os.environ.get("VOICE", ""), help="Breeze reference wav; its transcript sits next to it as .txt")
+    ap.add_argument("--tts-engine", default=os.environ.get("TTS_ENGINE", "breeze"), choices=["breeze", "pocket"],
+                    help="TTS backend at TTS_URL: breeze (Breeze TTS 2 API) or pocket (Pocket TTS on audiocpp_server, model TTS_MODEL)")
+    ap.add_argument("--voice", default=os.environ.get("VOICE", ""),
+                    help="breeze: reference wav, its transcript next to it as .txt; pocket: a voice name (alba, ...) or a wav to clone")
     ap.add_argument("--persona", default=os.environ.get("PERSONA", "nova"), choices=["nova"])
     ap.add_argument("--sessions-dir", default=os.environ.get("SESSIONS_DIR", ""),
                     help="save each session's event log, context and audio recording here ('' = off, the default)")
@@ -184,8 +189,8 @@ def main():
     ap.add_argument("--claude-mode", default="auto", help="claude -p --permission-mode")
     ap.add_argument("--claude-cwd", default="~")
     ARGS = ap.parse_args()
-    if not ARGS.stub and not ARGS.voice:
-        ap.error("--voice (or VOICE) is required unless --stub")
+    if not ARGS.stub and not ARGS.voice and ARGS.tts_engine == "breeze":
+        ap.error("--voice (or VOICE) is required for Breeze unless --stub")
     app = web.Application()
     app.on_startup.append(on_startup)
     app.router.add_get("/", page("live/index.html"))

@@ -128,10 +128,11 @@ class FakeHub:
 
 class FakeASR:
     """collects peek requests; answers them 65 ms later with the words the test says are still in the delay line"""
-    def __init__(self): self.sess = None; self.pending_words = []
+    def __init__(self): self.sess = None; self.pending_words = []; self.peeks = []
     async def send(self, msg):
         m = json.loads(msg)
         if m.get("type") == "peek":
+            self.peeks.append(m["id"])
             async def answer():
                 await asyncio.sleep(0.065)
                 words, self.pending_words = self.pending_words, []
@@ -578,13 +579,92 @@ async def scenario_peek_respelled():
     return "spec: a re-spelled live copy of the peeked word", ok, d
 
 
+def ant(p, a80, a160, a240):
+    """an all_ant80 head frame: the 5 softmax classes + 3 anticipation sigmoids (P(turn ends within 80/160/240 ms))"""
+    return p + [a80, a160, a240]
+
+
+async def ant4_turn(confirm_tail):
+    """ANT4=6:0.7: ant160 crosses 0.7 while the user still speaks -> early speculation (peek: "in Berlin?"); today's
+    trigger then re-peeks and sees `confirm_tail`"""
+    old = MS.ANT4; MS.ANT4 = [(6, 0.7)]
+    try:
+        d = Driver(); await d.start()
+        await d.frames(4, ant(SPEAK, 0.02, 0.05, 0.1)); d.words("What's", "the", "weather")
+        d.asr.pending_words = [{"text": w, "start": d.audio_ms, "end": d.audio_ms + 200} for w in ("in", "Berlin?")]
+        await d.frames(2, ant([0.9, 0.04, 0.03, 0.01, 0.02], 0.6, 0.85, 0.9))   # still speaking, about to stop
+        d.asr.pending_words = [{"text": w, "start": d.audio_ms, "end": d.audio_ms + 200} for w in confirm_tail]
+        await d.frames(1, ant(SIL_HALF, 0.8, 0.9, 0.95)); await d.frames(4, ant(SIL_DONE, 0.9, 0.95, 0.97))
+        await asyncio.sleep(0.4)
+        await d.frames(60, ant([0.02, 0.1, 0.1, 0.02, 0.76], 0.01, 0.01, 0.01))
+        await asyncio.sleep(0.3)
+        return d
+    finally:
+        MS.ANT4 = old
+
+
+async def scenario_ant4_confirmed():
+    d = await ant4_turn(("in", "Berlin?"))
+    c, ctx = d.s.counters, d.s.ctx.render()
+    early = [e for e in d.types("spec") if e.get("early")]
+    ok = (c["early_fired"] == 1 and c["early_confirmed"] == 1 and c["early_replaced"] == 0 and c["mspec_fired"] == 1
+          and c["mspec_promoted"] == 1 and len(early) == 1 and ("complete (spec)", "speak") in d.decisions()
+          and " in Berlin?" in ctx and REPLY.split()[0] in ctx and ctx.count("<|turn>model") == 1)
+    await d.s.http.close()
+    return "ANT4: early speculation confirmed by today's trigger", ok, d
+
+
+async def scenario_ant4_replaced():
+    d = await ant4_turn(("in", "Paris?"))
+    c, ctx = d.s.counters, d.s.ctx.render()
+    ok = (c["early_fired"] == 1 and c["early_replaced"] == 1 and c["early_confirmed"] == 0 and c["mspec_fired"] == 2
+          and c["mspec_promoted"] == 1 and " in Paris?" in ctx and "Berlin?" not in ctx and ctx.count("<|turn>model") == 1)
+    await d.s.http.close()
+    return "ANT4: early speculation replaced (the words changed)", ok, d
+
+
+async def scenario_ant4_confirm_skipped():
+    """ant160 crosses on the last speech frame, then only silence: nothing the early peek missed, so today's trigger
+    confirms without a second peek (ANT4_CONFIRM_SKIP)"""
+    old = MS.ANT4; MS.ANT4 = [(6, 0.7)]
+    try:
+        d = Driver(); await d.start()
+        await d.frames(4, ant(SPEAK, 0.02, 0.05, 0.1)); d.words("What's", "the", "weather")
+        d.asr.pending_words = [{"text": w, "start": d.audio_ms, "end": d.audio_ms + 200} for w in ("in", "Berlin?")]
+        await d.frames(1, ant([0.9, 0.04, 0.03, 0.01, 0.02], 0.6, 0.85, 0.9))   # the last speech frame
+        await d.frames(1, ant(SIL_HALF, 0.8, 0.9, 0.95)); await d.frames(4, ant(SIL_DONE, 0.9, 0.95, 0.97))
+        await asyncio.sleep(0.4)
+        await d.frames(60, ant([0.02, 0.1, 0.1, 0.02, 0.76], 0.01, 0.01, 0.01))
+        await asyncio.sleep(0.3)
+    finally:
+        MS.ANT4 = old
+    c, ctx = d.s.counters, d.s.ctx.render()
+    spec_peeks = [i for i in d.asr.peeks if str(i).startswith(("mspec", "mconf"))]
+    ok = (c["early_fired"] == 1 and c["early_confirmed"] == 1 and c["early_confirm_skipped"] == 1 and c["early_replaced"] == 0
+          and len(spec_peeks) == 1 and c["mspec_promoted"] == 1 and " in Berlin?" in ctx and ctx.count("<|turn>model") == 1)
+    if not ok: print("peeks:", d.asr.peeks)
+    await d.s.http.close()
+    return "ANT4: confirmed without a second peek (nothing changed)", ok, d
+
+
+async def scenario_ant4_old_head():
+    old = MS.ANT4; MS.ANT4 = [(6, 0.7)]
+    try:
+        name, ok, d = await scenario_spec_turn()               # 5-value head: p[6] doesn't exist, nothing fires early
+    finally:
+        MS.ANT4 = old
+    return "ANT4 on with a 5-class head: unchanged", ok and d.s.counters["early_fired"] == 0, d
+
+
 async def main():
     app = web.Application(); app.router.add_post("/v1/completions", completions); app.router.add_post("/v1/chat/completions", fireworks)
     runner = web.AppRunner(app); await runner.setup(); await web.TCPSite(runner, "127.0.0.1", PORT).start()
     results = []
     for sc in (scenario_spec_turn, lambda: scenario_barge("off"), lambda: scenario_barge("word"), scenario_backchannel, scenario_early_start, scenario_tool, scenario_two_calls, scenario_stateful_spec,
                scenario_interrupt_stale, scenario_interrupt_hold, scenario_no_empty_pin,
-               scenario_spec_live_duplicate, scenario_silence_fallback, scenario_phrase_cache, scenario_safety_net, scenario_reset, scenario_peek_twice, scenario_bc_flood, scenario_claude, scenario_frontier, scenario_spec_parallel_listen, scenario_nudge_after_listen, scenario_nudge_already_mentioned, scenario_peek_respelled):
+               scenario_spec_live_duplicate, scenario_silence_fallback, scenario_phrase_cache, scenario_safety_net, scenario_reset, scenario_peek_twice, scenario_bc_flood, scenario_claude, scenario_frontier, scenario_spec_parallel_listen, scenario_nudge_after_listen, scenario_nudge_already_mentioned, scenario_peek_respelled,
+               scenario_ant4_confirmed, scenario_ant4_replaced, scenario_ant4_confirm_skipped,
+               scenario_ant4_old_head):
         name, ok, d = await sc()
         results.append((name, ok))
         print(f"\n=== {name}: {'PASS' if ok else 'FAIL'}")

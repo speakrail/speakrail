@@ -10,7 +10,7 @@ import re
 PHRASES = {
     # vocalisations
     "mm", "mhm", "mmhmm", "mmhm", "hmm", "hm", "uhhuh", "uhuh", "huh", "aha", "ah", "oh", "ooh", "uh", "um", "uhm", "mmm",
-    "yeah", "yep", "yup", "yes", "ya", "yea", "no", "nah", "okay", "ok", "kay", "right", "sure", "alright", "all right",
+    "yeah", "yep", "yup", "yes", "ya", "yea", "okay", "ok", "kay", "right", "sure", "alright", "all right",   # not "no"/"nah": over us they object
     "i see", "got it", "gotcha", "true", "exactly", "indeed", "really", "interesting", "cool", "nice", "great", "good",
     "wow", "oh wow", "oh okay", "oh right", "oh yeah", "oh i see", "i know", "makes sense", "fair enough", "of course",
     "go on", "keep going", "carry on", "uh huh", "mm hmm", "mm hm", "totally", "absolutely", "for sure", "fine", "perfect",
