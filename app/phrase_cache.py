@@ -119,6 +119,35 @@ class PhraseCache:
         return len(todo)
 
 
+class PocketPhraseCache(PhraseCache):
+    """The same clips rendered by Pocket TTS on audiocpp_server, with the live PocketWorker's request (tts.pocket_body).
+    The key covers the engine, the server's model id and the voice (a wav's bytes, or a voice name), so Pocket clips
+    never mix with Breeze clips or with another Pocket voice. Pocket samples too: a clip is one take, as with Breeze."""
+
+    def __init__(self, voice: str, model: str = os.environ.get("TTS_MODEL", "pocket-tts")):
+        from tts import pocket_voice_args
+        self.voice, self.model, self.engine = voice, model, f"pocket:{model}"
+        self.voice_args = pocket_voice_args(voice)
+        ident = hashlib.sha256(open(voice, "rb").read()).hexdigest() if voice.endswith(".wav") else voice
+        key = json.dumps({"engine": self.engine, "voice": ident, "trim": [LEAD_KEEP_S, SILENCE, MAX_TAIL_S]}, sort_keys=True)
+        self.key = hashlib.sha256(key.encode()).hexdigest()[:16]
+        self.dir = ROOT / f"pocket_{Path(voice).stem or 'default'}_{self.key}"
+        self.index = json.load(open(self.dir / "index.json")) if (self.dir / "index.json").exists() else {}
+        self.pcm: dict[str, bytes] = {}
+        self.ref = voice; self.ref_text = self.seed = self.cfg_scale = self.instruction = None   # voice.json fields
+
+    def _render_one(self, text: str, url: str = BREEZE_URL) -> bytes:
+        import requests
+        from tts import pocket_body
+        for _ in range(500):                                         # 503: the model is busy with another request
+            r = requests.post(url, json=pocket_body(self.model, text, self.voice_args), stream=True, timeout=(5, 60))
+            if r.status_code != 503: break
+            r.close(); time.sleep(0.05)
+        r.raise_for_status()
+        pcm = b"".join(c for c in r.iter_content(chunk_size=None) if c)
+        return pcm[:len(pcm) & ~1]
+
+
 def phrases_list():
     p = HERE / "data" / "phrases.json"
     return json.load(open(p))["phrases"] if p.exists() else []
@@ -127,10 +156,13 @@ def phrases_list():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["render", "status"])
-    ap.add_argument("--voice", required=True, help="Breeze reference wav (its transcript next to it as .txt)")
-    ap.add_argument("--urls", default=BREEZE_URL, help="comma-separated Breeze servers to render on in parallel")
+    ap.add_argument("--engine", default=os.environ.get("TTS_ENGINE", "breeze"), choices=["breeze", "pocket"])
+    ap.add_argument("--voice", default="", help="breeze: reference wav (its transcript next to it as .txt); pocket: a voice name or a wav")
+    ap.add_argument("--urls", default=BREEZE_URL, help="comma-separated TTS servers to render on in parallel")
     a = ap.parse_args()
-    pc = PhraseCache(a.voice); ph = phrases_list()
+    if a.engine == "breeze" and not a.voice:
+        ap.error("--voice is required for Breeze")
+    pc = PhraseCache(a.voice) if a.engine == "breeze" else PocketPhraseCache(a.voice); ph = phrases_list()
     if a.cmd == "status":
         print(f"{pc.dir}: {sum(1 for p in ph if p in pc.index)}/{len(ph)} phrases rendered")
     else:

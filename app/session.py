@@ -125,6 +125,11 @@ class MicroCfg:
     next_clause_chars: int = 40
     tau: float = 0.9                 # endpoint rule
     k: int = 3
+    early: str = "on"                # (10-06) a held speculative reply goes out before the rule commits when the fork
+                                     # decided speak with p >= early_tau and the head still hears no speech with P(fire) >=
+                                     # spec_tau: on short greetings the head hovers at 0.7-0.9 and "Hey, you there?" waited
+                                     # 500 ms+ with its reply ready. "shadow" only logs when it would have gone; "off"
+    early_tau: float = 0.99
     bc_close_s: float = 1.5
     user_bc_tau: float = 0.95
     search: bool = True              # declare web_search (SearXNG answers it)
@@ -209,6 +214,21 @@ class Reply:
         return n
 
 
+# v4 package (10-13/14): early speculation from the turn head's anticipation outputs. ANT4="<p index>:<tau>[,...]":
+# a speculation starts as soon as one output is over its threshold (6:0.7 = P(the user's turn ends within 160 ms) >= 0.7,
+# all_ant80 head) or today's trigger fires, whichever comes first. One slot. When today's trigger (silent,
+# P(fire) >= spec_tau) comes while an early speculation runs, it peeks again: same words -> the early one is kept
+# (confirmed), else it is replaced by a fresh speculation from that peek. The endpoint rule's release waits for the
+# confirmation. An early speculation survives ANT4_AGE_S of continued speech. Empty ANT4 = off (old heads have no
+# anticipation outputs; p shorter than the index never fires).
+ANT4 = [(int(a), float(b)) for a, b in (x.split(":") for x in os.environ["ANT4"].split(","))] if os.environ.get("ANT4") else []
+ANT4_AGE_S = float(os.environ.get("ANT4_AGE_S", "0.5"))
+# ANT4_CONFIRM_SKIP (default on): today's trigger confirms an early speculation without a second peek when nothing changed
+# since the early one: its fork is built and no head frame past the early peek's coverage heard speech (a new word
+# discards the speculation anyway). Each peek stalls the live decoder, so the second one delayed the endpoint.
+ANT4_CONFIRM_SKIP = os.environ.get("ANT4_CONFIRM_SKIP", "1") == "1"
+
+
 class Spec:
     """A speculative decision (+ reply) on a forked context, waiting for the endpoint rule to commit the turn."""
     def __init__(self, t: float, frame_ms: float, ctx_len: int, n_live: int):
@@ -225,6 +245,14 @@ class Spec:
         self.promote_at: tuple | None = None   # (t, frame_ms): the rule committed while the spec was still running
         self.held_live: list[tuple] = []    # live words the peek already had: pushed only if the spec is discarded
         self.dead = False
+        self.early_seen = False             # the early rule's condition held once (logged once per spec)
+        self.early = False                  # (v4) fired by an anticipation output, possibly while the user still speaks
+        self.confirmed = False              # (v4) today's trigger re-peeked and found the same words
+        self.conf_sent = False              # (v4) that confirmation peek was sent
+        self.conf_id = None
+        self.wait_task = None               # (v4) building the fork waits for in-flight word calls
+        self.cover_ms = None                # (v4) the last head frame when the early peek came back: what it covered
+        self.speech_ms = float("-inf")      # (v4) the last head frame that heard speech since the early fire
 
 
 class MicroSession(Session):
@@ -261,6 +289,7 @@ class MicroSession(Session):
         self.hist: list[str] = []           # the conversation as plain text, synth_notes.history() format (thinker input)
         self.think: dict[int, dict] = {}    # turn id -> thinker state (messages, notes, queued points, task)
         self.mspec: Spec | None = None
+        self.head_frame_ms = None           # the newest audio frame the turn head has seen (ANT4_CONFIRM_SKIP)
         self.bc_idle = False                # an idle <user_bc> was sent since the last word (one per gap)
         self.result_unreported = False
         self.unreported_results: list[dict] = []   # async results not yet mentioned: {name, result, h (hist index)}
@@ -274,7 +303,7 @@ class MicroSession(Session):
         self.ov_hold: list[tuple] = []; self.ov_hold_task: asyncio.Task | None = None   # overlap input waiting (_hold)
         self.counters.update({"calls": 0, "speak": 0, "interrupt": 0, "listen": 0, "listen_muted": 0, "continue": 0, "interject": 0,
                               "yield": 0, "harness_yield": 0, "undo": 0, "overlaps": 0, "mspec_fired": 0,
-                              "mspec_promoted": 0, "mspec_discarded": 0, "mspec_wasted_replies": 0, "mspec_parallel_killed": 0, "tools": 0,
+                              "mspec_promoted": 0, "mspec_discarded": 0, "mspec_wasted_replies": 0, "mspec_parallel_killed": 0, "early_release": 0, "early_fired": 0, "early_confirmed": 0, "early_replaced": 0, "early_confirm_skipped": 0, "tools": 0,
                               "stale_dropped": 0, "held_overlaps": 0, "bare_complete_dropped": 0, "tool_hold_waits": 0,
                               "silence_fallback": 0, "notes_written": 0, "notes_inserted": 0, "replies_with_notes": 0,
                               "notes_unfinished": 0, "phrase_cache_hits": 0, "phrase_cache_misses": 0})
@@ -463,6 +492,50 @@ class MicroSession(Session):
         elif dec == INTERJECT:                         # the user's turn goes on: no reply, no overlap, no turn close
             await self._interject()
 
+    def _spec_confirm(self, t, frame_ms):
+        """(v4) today's trigger came while an early speculation runs: peek again to check its words, unless nothing
+        changed since the early peek (ANT4_CONFIRM_SKIP: the fork is built and no head frame past the early peek's
+        coverage heard speech, so a second peek would read the same words)"""
+        sp = self.mspec; sp.conf_sent = True
+        if ANT4_CONFIRM_SKIP and sp.fork is not None and sp.cover_ms is not None and sp.speech_ms <= sp.cover_ms:
+            self.counters["early_confirm_skipped"] += 1
+            self.send({"type": "early_confirm", "t": self._rel(t), "same": True, "skipped": True,
+                       "age_ms": round((t - sp.t) * 1000)})
+            return self._early_confirmed(sp)
+        sp.conf_id = f"mconf:{frame_ms}"
+        n = self.cfg.peek_frames or (max(self.cfg.delay_ms, 0) // 80 + 2)
+        asyncio.ensure_future(self.asr_ws.send(json.dumps({"type": "peek", "frames": n, "id": sp.conf_id})))
+
+    def _early_confirmed(self, sp):
+        sp.confirmed = True; self.counters["early_confirmed"] += 1
+        if sp.promote_at is not None and sp.dec is not None:   # the rule already fired: release the reply now
+            t0, fm = sp.promote_at
+            if not self._spec_promote(t0): self._commit(t0, fm)
+
+    def _on_confirm_peek(self, ev, t):
+        """(v4) the confirmation peek: same words -> keep the early speculation, else replace it from this peek"""
+        sp = self.mspec
+        if sp is None or sp.dead or sp.conf_id != ev.get("id") or self.turn is None:
+            return
+        new = self._peek_new(ev)
+        norm2 = normalize(self.turn.text() + "".join(" " + w["text"] for w in new))
+        same = sp.fork is not None and norm2 == sp.norm
+        self.send({"type": "early_confirm", "t": self._rel(t), "same": same, "age_ms": round((t - sp.t) * 1000),
+                   "early_words": " ".join(sp.norm[-4:]), "now_words": " ".join(norm2[-4:])})
+        if same:
+            return self._early_confirmed(sp)
+        self.counters["early_replaced"] += 1
+        pa = sp.promote_at
+        self._spec_discard(t, "early words wrong", commit_pending=False)
+        if self._agent_speaking():
+            if pa is not None: self._commit(*pa)
+            return
+        sp2 = self.mspec = Spec(t, 0, len(self.ctx.ids), len(self.turn.words)); sp2.peek_id = ev.get("id"); sp2.promote_at = pa
+        sp2.early = True; sp2.confirmed = True; sp2.conf_sent = True      # today's trigger's own peek: no confirmation needed
+        self.counters["mspec_fired"] += 1
+        self.send({"type": "spec", "turn": self.turn.id, "t": self._rel(t), "frame_ms": None, "early": False, "replaces": True})
+        self._on_spec_peek(ev, t)
+
     # ------------------------------------------------------------------ interjections (live tasks)
     async def _interject(self):
         """<interject> (the context already ends with it): as in training, the model writes its
@@ -645,7 +718,9 @@ class MicroSession(Session):
         self.bc_idle = False
         items = [("word", w["text"], self._word_rec(w, t, peek=False)) for w in words]
         sp = self.mspec
-        if sp is not None:
+        if sp is not None and sp.early and (sp.peek_ev is None or sp.fork is None):
+            pass                                              # (v4) the early fork is built from the context at peek time
+        elif sp is not None:
             if sp.peek_ev is None:
                 self._spec_discard(t, "new words")
             else:
@@ -684,6 +759,7 @@ class MicroSession(Session):
     def _on_head(self, ev, t, offset_ms):
         p = ev["p"]; self.head_p = p
         frame_ms = ev["t"] + offset_ms
+        self.head_frame_ms = frame_ms
         agent = self._agent_speaking()
         self.send({"type": "head", "t": self._rel(t), "frame_ms": frame_ms, "p": p, "armed": self.pending_fire is not None,
                    "spec": self.mspec is not None, "agent": agent, "turn": self.turn.id if self.turn is not None else None})
@@ -694,6 +770,9 @@ class MicroSession(Session):
         if bc_onset and (agent or (self.turn is not None and self.turn.words and not self.bc_idle)):
             self._push([("user_bc", frame_ms)])
             if not agent: self.bc_idle = True
+        if (ANT4 and not agent and self.mspec is None and self.rule_open and self.turn is not None and self.turn.words
+                and self.pending_fire is None and any(len(p) > i and p[i] >= tau for i, tau in ANT4)):
+            self._spec_fire(t, frame_ms, early=True)
         if p[0] >= 0.5:                                          # the user is speaking
             if self.sil_frames > 0: self.seg_bc = 0.0
             self.sil_frames = 0; self.hits = 0; self.spk_frames += 1
@@ -704,7 +783,10 @@ class MicroSession(Session):
                 if self.cfg.barge_in in ("head", "duck") and self.R.kind != "interrupt" and not self._interrupt_holds(self.R):
                     if not self.ducked: self._line("(ducking: the user speaks over us)")
                     self.ducked = True; self.send({"type": "duck", "gain": self.m.duck_gain})
-            if self.mspec is not None: self._spec_discard(t, "speech")
+            sp = self.mspec
+            if sp is not None and sp.early: sp.speech_ms = max(sp.speech_ms, frame_ms)
+            if sp is not None and not (sp.early and t - sp.t < ANT4_AGE_S):
+                self._spec_discard(t, "speech")
             return
         self.sil_frames += 1; self.spk_frames = 0
         if (self.m.result_nudge_s > 0 and self.result_unreported and not agent and self.mspec is None
@@ -723,9 +805,14 @@ class MicroSession(Session):
                 self.rule_open = False; self.rule_text = []
             return
         pf = p[1] if agent else p[1] + p[3]
+        sp4 = self.mspec
+        if sp4 is not None and sp4.early and not sp4.conf_sent and not agent and pf >= self.cfg.spec_tau:
+            self._spec_confirm(t, frame_ms)
         if (self.cfg.spec and self.cfg.peek and not agent and self.mspec is None and pf >= self.cfg.spec_tau
                 and not self.busy and not self.inq and self.pending_fire is None):
             self._spec_fire(t, frame_ms)
+        if self._early_check(t, frame_ms, pf):
+            return
         self.hits = self.hits + 1 if pf >= self.m.tau else 0     # end of turn: P(fire) >= tau on k frames in a row
         fired = self.hits >= self.m.k
         if fired:
@@ -756,15 +843,41 @@ class MicroSession(Session):
             if sp is not None: self._spec_discard(time.monotonic(), "silence marker")
             self._push([("sil", L)])
 
-    def _fire(self, t, frame_ms):
+    def _early_check(self, t, frame_ms, pf) -> bool:
+        """the early rule (MicroCfg.early): True if it released the held reply (the turn is committed)"""
+        sp = self.mspec
+        if (self.m.early == "off" or sp is None or sp.dead or sp.dec != P.SPEAK or (sp.early and not sp.confirmed)
+                or sp.reply is None or self._agent_speaking()
+                or sp.promote_at is not None or self.pending_fire is not None or pf < self.cfg.spec_tau):
+            return False
+        p_speak = sp.rec["probs"].get(P.DECISION_NAME[P.SPEAK], 0.0)
+        if p_speak < self.m.early_tau:
+            return False
+        if not sp.early_seen:
+            sp.early_seen = True
+            self.send({"type": "early", "t": self._rel(t), "frame_ms": frame_ms, "p_speak": p_speak, "pf": round(pf, 3),
+                       "age_ms": round((t - sp.t) * 1000), "shadow": self.m.early != "on"})
+        if self.m.early != "on":
+            return False
+        self.counters["early_release"] += 1
+        self._line(f"(early release: fork decided speak {p_speak:.3f}, head P(fire) {pf:.2f})")
+        self.rule_open = False; self.rule_text = []; self.hits = 0
+        self._fire(t, frame_ms, early=True)
+        return True
+
+    def _fire(self, t, frame_ms, early=False):
         self.counters["head_fires"] += 1
-        self.send({"type": "arm", "reason": "head", "t": self._rel(t), "frame_ms": frame_ms})
+        self.send({"type": "arm", "reason": "early" if early else "head", "t": self._rel(t), "frame_ms": frame_ms})
         if self.turn is not None: self.turn.t_head_fire = t
         sp = self.mspec
+        if sp is not None and sp.early and not sp.confirmed:
+            sp.promote_at = (t, frame_ms)                     # (v4) release once today's trigger peek confirms the words
+            if not sp.conf_sent: self._spec_confirm(t, frame_ms)
+            return
         if sp is not None:
             if sp.dec is None:                                # the spec is still peeking / deciding: commit when it lands
                 sp.promote_at = (t, frame_ms); return
-            if self._spec_promote(t):
+            if self._spec_promote(t, early):
                 return
         self._commit(t, frame_ms)
 
@@ -778,6 +891,8 @@ class MicroSession(Session):
             asyncio.get_running_loop().call_later(wait, lambda: self._push([("complete",)]))
 
     def _on_peek(self, ev, t):
+        if str(ev.get("id", "")).startswith("mconf:"):
+            return self._on_confirm_peek(ev, t)
         sp = self.mspec
         if sp is not None and ev.get("id") == sp.peek_id:
             return self._on_spec_peek(ev, t)
@@ -809,12 +924,13 @@ class MicroSession(Session):
             self.peek_last = (ev["words"][-1]["start"], " ".join(normalize(ev["words"][-1]["text"])))
 
     # ------------------------------------------------------------------ speculation
-    def _spec_fire(self, t, frame_ms):
+    def _spec_fire(self, t, frame_ms, early=False):
         if self.asr_ws is None or self.turn is None:
             return
-        sp = self.mspec = Spec(t, frame_ms, len(self.ctx.ids), len(self.turn.words))
+        sp = self.mspec = Spec(t, frame_ms, len(self.ctx.ids), len(self.turn.words)); sp.early = early
+        if early: self.counters["early_fired"] += 1
         self.counters["mspec_fired"] += 1
-        self.send({"type": "spec", "turn": self.turn.id, "t": self._rel(t), "frame_ms": frame_ms})
+        self.send({"type": "spec", "turn": self.turn.id, "t": self._rel(t), "frame_ms": frame_ms, "early": early})
         n = self.cfg.peek_frames or (max(self.cfg.delay_ms, 0) // 80 + 2)
         asyncio.ensure_future(self.asr_ws.send(json.dumps({"type": "peek", "frames": n, "id": sp.peek_id})))
 
@@ -822,6 +938,21 @@ class MicroSession(Session):
         sp = self.mspec
         if sp.dead:
             return
+        if sp.early and sp.cover_ms is None:
+            sp.cover_ms = self.head_frame_ms   # frames the head reports after this may be audio the peek didn't hear
+        if sp.early and (self.busy or self.inq) and not self._agent_speaking() and self.turn is not None:
+            # (v4) the user is mid-turn and their words' calls are in flight: build the fork once they land
+            if sp.wait_task is None:
+                async def later():
+                    for _ in range(60):
+                        await asyncio.sleep(0.005)
+                        if sp.dead or self.mspec is not sp: return
+                        if not (self.busy or self.inq):
+                            sp.ctx_len = len(self.ctx.ids); return self._on_spec_peek(ev, time.monotonic())
+                    if self.mspec is sp: self._spec_discard(time.monotonic(), "context busy")
+                sp.wait_task = asyncio.ensure_future(later())
+            return
+        if sp.early: sp.ctx_len = len(self.ctx.ids)
         if self.busy or self.inq or len(self.ctx.ids) != sp.ctx_len or self._agent_speaking() or self.turn is None:
             return self._spec_discard(t, "context moved")
         sp.peek_ev = ev
@@ -854,6 +985,8 @@ class MicroSession(Session):
             if sp.dead:
                 return
             sp.dec, sp.rec = dec, rec
+            self.send({"type": "spec_decided", "t": self._rel(), "decision": rec["decision"], "probs": rec["probs"],
+                       "ms": rec["ms"], "age_ms": round((time.monotonic() - sp.t) * 1000)})
             if R is not None and dec == P.SPEAK:
                 sp.fork = gen_fork; sp.n_notes = n_notes
             else:
@@ -867,7 +1000,7 @@ class MicroSession(Session):
                     R.ctx_snapshot = ("fork", snap_fork)
                     sp.reply = R
                     R.task = asyncio.ensure_future(self._generate(R, list(sp.fork.ids)))
-            if sp.promote_at is not None:
+            if sp.promote_at is not None and (not sp.early or sp.confirmed):
                 t, frame_ms = sp.promote_at
                 if not self._spec_promote(t):
                     self._commit(t, frame_ms)
@@ -895,7 +1028,7 @@ class MicroSession(Session):
         if commit_pending and sp.promote_at is not None:        # the rule already fired: commit the normal way
             self._commit(*sp.promote_at)
 
-    def _spec_promote(self, t) -> bool:
+    def _spec_promote(self, t, early=False) -> bool:
         """the endpoint rule committed: adopt the fork if nothing reached the context since it was taken"""
         sp = self.mspec
         live = normalize(self.turn.text()) if self.turn else []
@@ -920,10 +1053,11 @@ class MicroSession(Session):
         self.calls_log.append(rec); self.counters["calls"] += 1; self.counters[rec["decision"]] += 1
         self.send({"type": "decision", **rec})
         self._line(f"    CALL {'complete(spec)':14s} -> {rec['decision']:12s} {rec['ms']:6.1f} ms")
-        self.send({"type": "endpoint", "turn": tr.id, "text": tr.text(), "t": self._rel(t), "reason": "complete+spec"})
+        reason = "early+spec" if early else "complete+spec"
+        self.send({"type": "endpoint", "turn": tr.id, "text": tr.text(), "t": self._rel(t), "reason": reason})
         self.ctx = sp.fork                                    # peek words + <complete> + the call (and model open)
         if sp.dec in (P.SPEAK, P.INTERRUPT):
-            tr = self._close_user_turn(True); tr.ep_reason = "complete+spec"; tr.t_spec = sp.t
+            tr = self._close_user_turn(True); tr.ep_reason = reason; tr.t_spec = sp.t
             R = sp.reply
             scratch = R.turn
             for k in ("t_llm_sent", "t_first_token", "t_llm_done", "t_tts_in", "t_first_pcm", "n_tokens", "reply",
@@ -1062,16 +1196,17 @@ class MicroSession(Session):
             self.hub.worker.say(s)
 
     def _phrases(self):
-        """the hub's phrase cache for its exact voice and render settings (loaded once per process); None if off or not Breeze"""
+        """the hub's phrase cache for its exact engine, voice and render settings (loaded once per process); None if off"""
         h = self.hub
         if not hasattr(h, "phrase_cache"):
             h.phrase_cache = None
-            if h.engine == "breeze" and self.m.phrase_cache:
+            if h.engine in ("breeze", "pocket") and self.m.phrase_cache:
                 try:
-                    from phrase_cache import PhraseCache
+                    from phrase_cache import PhraseCache, PocketPhraseCache
                     w = h.worker
-                    h.phrase_cache = PhraseCache(w.ref, w.seed, w.cfg_scale, w.instruction).load()
-                    print(f"[phrase cache] {len(h.phrase_cache.pcm)} clips for {w.ref.rsplit('/', 1)[-1]} ({h.phrase_cache.dir.name})", flush=True)
+                    h.phrase_cache = (PhraseCache(w.ref, w.seed, w.cfg_scale, w.instruction) if h.engine == "breeze"
+                                      else PocketPhraseCache(w.voice, w.model)).load()
+                    print(f"[phrase cache] {len(h.phrase_cache.pcm)} clips ({h.phrase_cache.dir.name})", flush=True)
                 except Exception as e:
                     print(f"[phrase cache] off: {e!r}", flush=True)
         return h.phrase_cache if self.m.phrase_cache else None

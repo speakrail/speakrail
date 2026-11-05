@@ -2,10 +2,11 @@
 # Speakrail app: render the phrase cache for the voice once (needs the TTS service), then serve the UI.
 set -euo pipefail
 cd /app
-VOICE=${VOICE:-female_a.wav}
-case "$VOICE" in */*) ;; *) VOICE="/app/voices/$VOICE" ;; esac   # a bare name = one of app/voices/
-export VOICE
+TTS_ENGINE=${TTS_ENGINE:-breeze}
+[ "$TTS_ENGINE" = breeze ] && VOICE=${VOICE:-female_a.wav}
+case "${VOICE:-}" in */*|"") ;; *.wav) VOICE="/app/voices/$VOICE" ;; esac   # a bare wav name = one of app/voices/
+export VOICE TTS_ENGINE
 case " $* " in *" --stub "*) exec python server.py "$@" ;; esac          # no TTS in stub mode
-python phrase_cache.py render --voice "$VOICE" --urls "${TTS_URL:-http://127.0.0.1:7860/v1/audio/speech}" || \
+python phrase_cache.py render --engine "$TTS_ENGINE" --voice "${VOICE:-}" --urls "${TTS_URL:-http://127.0.0.1:7860/v1/audio/speech}" || \
   echo "app: phrase cache not rendered (replies then start without pre-rendered first clauses)" >&2
 exec python server.py "$@"

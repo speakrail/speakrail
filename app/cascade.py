@@ -29,7 +29,7 @@ import websockets
 from scipy.signal import resample_poly
 
 from backchannel import normalize
-from tts import BreezeWorker
+from tts import make_worker
 
 SAMPLE_RATE = 16000
 
@@ -256,12 +256,13 @@ class Spec:
 
 class TTSHub:
     """One TTS worker per process; utterance ids are global, routed to sessions.
-    Breeze TTS 2 streaming API (voice = reference wav with its transcript in a sibling .txt)."""
+    engine: a tts.ENGINES key (breeze: voice = reference wav with its transcript in a sibling .txt; pocket: a voice
+    name or a wav to clone)."""
     def __init__(self, loop, voice, engine="breeze"):
         self.owners: dict[int, "Session"] = {}
         self.next_utt = 1
         self.engine = engine
-        self.worker = BreezeWorker(voice, loop, self._on_audio, self._on_done)
+        self.worker = make_worker(engine, voice, loop, self._on_audio, self._on_done)
         self.worker.start()
 
     async def wait_ready(self):
