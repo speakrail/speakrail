@@ -6,6 +6,7 @@ capabilities = ["transcribe", "turn_head", "anticipation", "peek"]
 platforms = ["darwin"]         # Linux runs the Docker image in this folder; its manifest entry arrives with the Linux engines
 url = "ws://127.0.0.1:${port_main}/v1/transcribe"
 startup_timeout_s = 120
+needs = ["${audiocpp_dir}/audiocpp_server", "${gguf}", "${head}", "${head}.json"]
 
 [ports]
 main = 8765

@@ -1,4 +1,4 @@
-"""speakrail engine list | show | install | run | test | fidelity"""
+"""speakrail run | config | doctor | bench | engine"""
 from __future__ import annotations
 
 import argparse
@@ -145,9 +145,32 @@ def main(argv=None) -> int:
             s.add_argument("--url", help="test an engine that is already running")
         if name == "fidelity":
             s.add_argument("--reference", required=True)
+    def choices(sp):
+        sp.add_argument("--config", help="use this config instead of choosing one")
+        sp.add_argument("--set", action="append", metavar="KEY=VALUE", help="override a setting, for example notes=true")
+        sp.add_argument("--param", action="append", metavar="ENGINE:KEY=VALUE", help="override an engine param, for example asr/audiocpp:threads=2")
+        sp.add_argument("--force", action="store_true", help="try a config that doesn't fit this machine's memory")
+
+    run_p = top.add_parser("run", help="start everything for this machine")
+    choices(run_p)
+    run_p.add_argument("--no-bench", action="store_true", help="skip the first-launch benchmark")
+    cfg_p = top.add_parser("config", help="what would run here, and why")
+    cfg_p.add_argument("action", nargs="?", choices=["explain", "list"], default="explain")
+    choices(cfg_p)
+    choices(top.add_parser("doctor", help="check that this machine is ready"))
+    choices(top.add_parser("bench", help="measure this machine again"))
     a = p.parse_args(argv)
     try:
-        return a.fn(discover(), a) or 0
+        if a.group == "engine":
+            return a.fn(discover(), a) or 0
+        from . import doctor, run
+        if a.group == "run":
+            return run.main(a)
+        if a.group == "doctor":
+            return doctor.main(a)
+        if a.group == "bench":
+            return run.bench_main(a)
+        return doctor.list_main(a) if a.action == "list" else doctor.explain_main(a)
     except ManifestError as e:
         print(f"manifest error: {e}")
         return 2

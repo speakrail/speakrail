@@ -6,6 +6,7 @@ capabilities = ["chat", "parallel", "per_request_adapter", "cancel", "prefix_cac
 platforms = ["darwin"]
 url = "http://127.0.0.1:${port_main}/v1/completions"
 startup_timeout_s = 180
+needs = ["${model}/config.json", "${adapter}/adapter_config.json"]
 
 [ports]
 main = 8000

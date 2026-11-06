@@ -37,7 +37,7 @@ def session_cfg(q):
     barge = {"0": "off", "1": "word"}.get(q.get("barge", ARGS.barge), q.get("barge", ARGS.barge))
     return Cfg(asr_url=CFG.asr_url, barge_in=barge,
                voice=ARGS.voice, silence_ms=int(q.get("silence_ms", ARGS.silence_ms)),
-               search=search_for(q), spec=CFG.spec, peek_frames=CFG.peek_frames)   # SPEC=0: no speculation (one peek at the endpoint)
+               search=search_for(q), spec=CFG.spec, peek=CFG.peek, peek_frames=CFG.peek_frames)   # SPEC=0: no speculation (one peek at the endpoint)
 
 
 def search_for(q):

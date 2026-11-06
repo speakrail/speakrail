@@ -117,6 +117,9 @@ class Supervisor:
         values = values_for(engine, self.home, self.models, run_dir, params, python)
         if engine.python and not Path(values["python"]).exists():
             raise EngineError(f"{engine.id} isn't installed: no environment at {values['python']} (speakrail engine install {engine.id})")
+        missing = [p for p in (render(n, values, engine.id) for n in engine.needs) if not Path(p).exists()]
+        if missing:
+            raise EngineError(f"{engine.id} is missing {', '.join(missing)}")
         for f in engine.files:
             (run_dir / f["name"]).write_text(render((engine.dir / f["template"]).read_text(), values, f"{engine.id} file {f['name']}"))
         r = Running(engine, values)

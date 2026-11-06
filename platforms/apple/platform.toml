@@ -1,0 +1,3 @@
+name = "apple"
+memory_kind = "unified"
+reserve_gib = 4.0      # macOS and whatever else is open share this memory

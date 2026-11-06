@@ -1,0 +1,33 @@
+name = "mac-e4b"
+status = "tested"
+description = "Gemma E4B on MLX, Voxtral q4, Pocket on the CPU"
+platform = "apple"
+priority = 10
+memory_peak_gib = 10.7    # all processes, measured with notes off. Notes on long turns added about 1 GiB.
+disk_gib = 12.5
+
+[engines]
+asr = "asr/audiocpp"
+tts = "tts/pocket"
+llm = "llm/mlx"
+
+[harness]
+tokenizer_dir = "${models}/speakrail-e4b-adapter/tokenizer"
+voice = "female_a.wav"
+llm_lora = "speakrail"
+llm_base_model = "speakrail-base"
+turn_k = 1                # all_ant80 was benchmarked at K=1
+spec = true               # better p90, and affordable on MLX
+ant4 = ""                 # delays the endpoint here, and made one recording ignore "stop"
+peek_frames = 8           # 10 cost 110 ms to the ear with no gain at endpoints
+notes = false             # +164 ms on long turns, and no measured benefit on E4B
+tool_hold_ms = 300
+
+[run]
+phrase_cache = true
+
+[evidence]
+machine = "Apple M4 Pro, 24 GB"
+date = "2026-11-06"
+tapes = "12 latest recordings, replayed through `speakrail run` with no settings chosen by hand"
+last_word_to_ear_ms = "954/1351"

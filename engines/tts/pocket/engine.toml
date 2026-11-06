@@ -6,6 +6,7 @@ capabilities = ["stream", "cancel", "clone"]
 platforms = ["darwin"]         # also fine on Linux; its entry arrives with the Linux engines
 url = "http://127.0.0.1:${port_main}/v1/audio/speech"
 startup_timeout_s = 60
+needs = ["${audiocpp_dir}/audiocpp_server", "${gguf}"]
 
 [ports]
 main = 8091

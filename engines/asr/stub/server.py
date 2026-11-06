@@ -49,6 +49,8 @@ async def transcribe(request):
                         await ws.send_json({"type": "transcript", "text": " " + w, "words": [{"text": w, "start": t - WORD_FRAMES * FRAME_MS, "end": t}]})
                 if speech:
                     p = [0.95, 0.01, 0.02, 0.01, 0.01, 0.02, 0.02, 0.02]
+                elif "vad_head" in FLAGS:             # only a VAD, as an adapter without a real head would send: never says "complete"
+                    p = [0.01, 0.02, 0.95, 0.01, 0.01, 0.02, 0.02, 0.02]
                 elif quiet >= 3:
                     p = [0.01, 0.97, 0.01, 0.0, 0.01, 0.9, 0.9, 0.9]
                 else:

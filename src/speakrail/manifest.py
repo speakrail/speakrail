@@ -22,6 +22,8 @@
     [harness]                         # optional: how the harness talks to it
     worker = "pocket"
 
+    needs = ["${model}/config.json"]  # optional, top level: files that must exist before starting, checked by `doctor` too
+
     [[file]]                          # optional: a template rendered to <run>/<name> before starting
     name = "server.json"
     template = "server.json.in"
@@ -75,6 +77,7 @@ class Engine:
     python: dict | None = None
     harness: dict = field(default_factory=dict)
     startup_timeout_s: float = 120.0
+    needs: tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -105,7 +108,7 @@ def load_manifest(path: Path) -> Engine:
         raw = tomllib.loads(Path(path).read_text())
     except tomllib.TOMLDecodeError as e:
         raise ManifestError(f"{where}: {e}") from e
-    known = {"contract", "role", "name", "description", "capabilities", "platforms", "url", "startup_timeout_s", "ports", "python", "params", "harness", "file", "process"}
+    known = {"contract", "role", "name", "description", "capabilities", "platforms", "url", "startup_timeout_s", "needs", "ports", "python", "params", "harness", "file", "process"}
     if extra := set(raw) - known:
         raise ManifestError(f"{where}: unknown keys {sorted(extra)}")
     if (v := _need(raw, "contract", int, where)) != CONTRACT_VERSION:
@@ -136,7 +139,7 @@ def load_manifest(path: Path) -> Engine:
     return Engine(role=role, name=_need(raw, "name", str, where), dir=Path(path).resolve().parent, description=raw.get("description", ""),
                   capabilities=frozenset(caps), platforms=tuple(_need(raw, "platforms", list, where)), url=_need(raw, "url", str, where),
                   ports=dict(ports), params=dict(raw.get("params", {})), processes=tuple(procs), files=tuple(raw.get("file", [])), python=py,
-                  harness=dict(raw.get("harness", {})), startup_timeout_s=float(raw.get("startup_timeout_s", 120)))
+                  harness=dict(raw.get("harness", {})), startup_timeout_s=float(raw.get("startup_timeout_s", 120)), needs=tuple(raw.get("needs", ())))
 
 
 def search_path() -> list[Path]:

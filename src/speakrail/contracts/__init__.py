@@ -4,6 +4,8 @@ conformance checks hold it to that. Bump CONTRACT_VERSION when a change would br
 CONTRACT_VERSION = 1
 ROLES = ("asr", "tts", "llm")                # also the start order: the LLM claims what GPU memory is left
 
+REQUIRED = {"llm": set(), "asr": {"turn_head"}, "tts": set()}
+
 CAPABILITIES = {
     "llm": {
         "chat": "POST /v1/chat/completions, used by the listening notes",
@@ -14,7 +16,8 @@ CAPABILITIES = {
     },
     "asr": {
         "transcribe": "timed words from speech",
-        "turn_head": "`turn` events with class probabilities every 80 ms",
+        "turn_head": "`turn` events every 80 ms. Required: the harness ends turns from these frames, silence fallback included. "
+                     "An engine without a real head can send them from a simple VAD",
         "anticipation": "p[5:8] of the turn head hold the anticipation outputs (ANT4)",
         "peek": "drain the delay line on a snapshot of the decoder",
     },

@@ -46,6 +46,7 @@ class Config:
     turn_tau: float = 0.9
     turn_k: int = 3
     spec: bool = True
+    peek: bool = True                # needs an ASR that can peek
     peek_frames: int = 0             # 0 = delay/80 + 2, which is 8
     ant4: str = ""                   # "<p index>:<tau>[,...]", "" = off
     ant4_age_s: float = 0.5
@@ -79,7 +80,7 @@ ENV = {
     "ui_host": ("UI_HOST", str), "ui_port": ("UI_PORT", int),
     "persona": ("PERSONA", str), "voice": ("VOICE", str), "home_city": ("HOME_CITY", str), "home_timezone": ("HOME_TIMEZONE", str),
     "silence_ms": ("SILENCE_MS", int), "turn_tau": ("TURN_TAU", float), "turn_k": ("TURN_K", int), "spec": ("SPEC", _on_if_1),
-    "peek_frames": ("PEEK_FRAMES", int), "ant4": ("ANT4", str), "ant4_age_s": ("ANT4_AGE_S", float), "ant4_confirm_skip": ("ANT4_CONFIRM_SKIP", _on_if_1),
+    "peek": ("PEEK", _off_if_0), "peek_frames": ("PEEK_FRAMES", int), "ant4": ("ANT4", str), "ant4_age_s": ("ANT4_AGE_S", float), "ant4_confirm_skip": ("ANT4_CONFIRM_SKIP", _on_if_1),
     "notes": ("NOTES", _on_if_1), "interject": ("INTERJECT", _off_if_0), "tool_hold_ms": ("TOOL_HOLD_MS", int), "search": ("SEARCH", str),
     "searxng_url": ("SEARXNG_URL", str),
 }

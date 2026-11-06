@@ -1,0 +1,19 @@
+name = "stub"
+status = "experimental"
+description = "The stub engines: no models and no GPU, for tests and for trying the UI"
+platform = "any"
+priority = 0
+memory_peak_gib = 0.5
+disk_gib = 0.0
+
+[engines]
+asr = "asr/stub"
+tts = "tts/stub"
+llm = "llm/stub"
+
+[harness]
+turn_k = 1
+notes = false
+
+[run]
+phrase_cache = false
