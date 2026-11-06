@@ -20,6 +20,7 @@ import time
 from aiohttp import web, WSMsgType
 
 from ..config import CFG, secret
+from ..gateway.live import handler as live_handler, origin_allowed
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HUB = None
@@ -63,7 +64,22 @@ def micro_cfg(q, cfg):
                     frontier=ARGS.frontier)               # paid, on the user's own Fireworks key; no shell access
 
 
+def make_live_session(send, tools=(), default_tools=False, instructions="", run_client_tool=None):
+    """a harness session for the public API: the client's tools, and ours only if it asks for them"""
+    from dataclasses import replace
+    from .session import MicroSession
+    cfg = session_cfg({})
+    if not default_tools:
+        cfg = replace(cfg, search="off")
+    mcfg = replace(micro_cfg({}, cfg), tools=default_tools, reset_tool=default_tools, search=default_tools, claude=False, frontier=default_tools and ARGS.frontier,
+                   client_tools=list(tools), client_tool_runner=run_client_tool, instructions=instructions)
+    log_dir = os.path.join(ARGS.sessions_dir, f"session-{time.strftime('%Y%m%d-%H%M%S')}") if ARGS.sessions_dir else None
+    return MicroSession(cfg, HUB, send, log_dir=log_dir, mcfg=mcfg)
+
+
 async def ws_handler(request):
+    if not origin_allowed(request):                       # any web page can open a WebSocket to localhost, and this one hears the microphone
+        raise web.HTTPForbidden(text="this origin may not use this server")
     ws = web.WebSocketResponse(max_msg_size=0, heartbeat=20)
     await ws.prepare(request)
     q = request.query
@@ -190,6 +206,7 @@ def main():
         ap.error("--voice (or VOICE) is required for Breeze unless --stub")
     app = web.Application()
     app.on_startup.append(on_startup)
+    app.router.add_get("/v1/live/sessions", live_handler(make_live_session))
     app.router.add_get("/", page("live/index.html"))
     app.router.add_get("/ws", ws_handler)
     app.router.add_static("/static", os.path.join(HERE, "web", "live"))

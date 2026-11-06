@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
@@ -118,7 +119,12 @@ def main(args) -> int:
                 say(f"Benchmark failed, keeping the config's settings: {type(e).__name__}: {e}")
         conf = home / "config" / "resolved.json"
         to_file(resolved, urls, conf)
-        env = {**os.environ, "SPEAKRAIL_CONFIG": str(conf), "PYTHONPATH": os.pathsep.join(filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH", "")]))}
+        token_file = home / "config" / "api_token"
+        if not token_file.exists():
+            token_file.touch(mode=0o600)
+            token_file.write_text(secrets.token_urlsafe(32) + "\n")
+        env = {**os.environ, "SPEAKRAIL_CONFIG": str(conf), "SPEAKRAIL_API_TOKEN": token_file.read_text().strip(),
+               "PYTHONPATH": os.pathsep.join(filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH", "")]))}
         if resolved.config.phrase_cache and resolved.harness.get("phrase_cache_dir") and not _phrases_ready(env, resolved):
             say("Rendering the phrase cache, once per voice...")
             render_phrase_cache(resolved.harness, env, urls["tts"])
@@ -139,7 +145,7 @@ def main(args) -> int:
                 say("The harness didn't come up in 120 s")
                 return 1
             time.sleep(0.2)
-        say(f"\nSpeakrail is ready: {url}\nCtrl-C stops everything.")
+        say(f"\nSpeakrail is ready: {url}\nAPI (GPT-Live over WebSocket): ws://{CFG.ui_host}:{CFG.ui_port}/v1/live/sessions, with the token in {token_file}\nCtrl-C stops everything.")
         while not stop.is_set() and not failed.is_set():
             if harness.poll() is not None:
                 reason.append(f"the harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")

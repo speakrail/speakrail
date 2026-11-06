@@ -20,6 +20,8 @@ MODELS = ("speakrail", "speakrail-base")
 MAX_CONTEXT = 16384
 FLAGS = set()
 LAST_PROMPT = {}
+FIRST_PROMPT = []                                     # the first prompt it saw: the system prompt and the tools, for tests
+TOOL_CALLED = [False]
 
 
 def bad(message):
@@ -63,6 +65,8 @@ async def completions(request):
     if len(prompt) + max_tokens > MAX_CONTEXT:
         return bad("context too long")
     await prefill(model, prompt)
+    if not FIRST_PROMPT:
+        FIRST_PROMPT.extend(prompt)
     allowed, stops = b.get("allowed_token_ids") or [], set(b.get("stop_token_ids") or [])
     banned = {int(k) for k, v in (b.get("logit_bias") or {}).items() if v <= -100}
     if allowed:
@@ -95,6 +99,14 @@ async def stream(request, b, prompt, tokens, stops, max_tokens):
     resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
     await resp.prepare(request)
     send = lambda o: resp.write(f"data: {json.dumps(o)}\n\n".encode())
+    call = next((f[len("tool_call="):] for f in FLAGS if f.startswith("tool_call=")), None)
+    if call and not TOOL_CALLED[0]:                   # once: a call, with the stop the harness waits for, and then a normal reply
+        TOOL_CALLED[0] = True
+        await send({"choices": [{"text": "<|tool_call>call:" + call + '{city:<|"|>Rome<|"|>}<tool_call|>', "index": 0, "finish_reason": None}]})
+        await send({"choices": [{"text": "", "index": 0, "finish_reason": "stop", "stop_reason": 50}]})
+        await resp.write(b"data: [DONE]\n\n")
+        await resp.write_eof()
+        return resp
     n, reason, stop_reason = 0, "length", None
     for i, t in enumerate(tokens[:max_tokens]):
         if t in stops:
@@ -128,6 +140,10 @@ async def health(_):
     return web.json_response({"ok": True})
 
 
+async def first_prompt(_):
+    return web.json_response({"prompt": FIRST_PROMPT})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, required=True)
@@ -138,6 +154,7 @@ def main():
     app.router.add_post("/v1/completions", completions)
     app.router.add_post("/v1/chat/completions", chat)
     app.router.add_get("/health", health)
+    app.router.add_get("/stub/first_prompt", first_prompt)
     web.run_app(app, host="127.0.0.1", port=a.port, print=None, access_log=None)
 
 

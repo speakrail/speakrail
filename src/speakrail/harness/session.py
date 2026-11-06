@@ -135,6 +135,9 @@ class MicroCfg:
     user_bc_tau: float = 0.95
     search: bool = True              # declare web_search (SearXNG answers it)
     tools: bool = True               # declare the local tools (tools.LOCAL_TOOLS)
+    client_tools: list = field(default_factory=list)   # {name, description, parameters}, run by the API client. A name here replaces ours
+    client_tool_runner: object = None   # async (name, args) -> result
+    instructions: str = ""           # the API client's own, after the turn-taking sentences, which stay in charge
     persona: str = "nova"
     claude: bool = False             # declare claude_code (+ task_status / cancel_task): tasks for Claude Code on this
                                      # machine, reported as async results (server.py turns it on only with the access key)
@@ -274,8 +277,12 @@ class MicroSession(Session):
             self.frontier = FrontierTasks(lambda tid, r: self._task_done(FRONTIER_TOOL, tid, r), log_dir=log_dir)
         if self.m.claude or self.m.frontier:
             tools += [P.tool_declaration("task_status", CAT["task_status"]), P.tool_declaration("cancel_task", CAT["cancel_task"])]
+        self.client_tool_names = {t["name"] for t in self.m.client_tools}
+        if self.client_tool_names:
+            tools = [d for d in tools if d["function"]["name"] not in self.client_tool_names]
+            tools += [P.tool_declaration(t["name"], {"description": t.get("description", ""), "parameters": t.get("parameters") or {}}) for t in self.m.client_tools]
         self.toolbox = ToolBox(None)
-        self.user_rules = ""                # standing instructions given with reset_chat (end of the system prompt)
+        self.user_rules = self.m.instructions   # standing instructions (end of the system prompt): from the API client, or given with reset_chat
         self.reset_ask: dict | None = None  # reset_chat asked for confirmation: {t, utt, instructions}
         self.reset_due: str | None = None   # confirmed: the reset happens when this reply ends (value = the new instructions)
         self.n_resets = 0
@@ -1264,6 +1271,14 @@ class MicroSession(Session):
 
     async def _run_tool(self, R: Reply, name: str, args: dict):
         tr = R.turn
+        if name in self.client_tool_names:
+            while R.held:                                     # a speculative reply calls out only once adopted (a discard cancels this)
+                await asyncio.sleep(0.02)
+            t0 = time.monotonic(); self.counters["tools"] += 1
+            result = await self.m.client_tool_runner(name, args)
+            self.send({"type": "tool", "turn": tr.id, "name": name, "args": args, "result": result, "t": self._rel(), "ms": round((time.monotonic() - t0) * 1000), "client": True})
+            self._line(f"    TOOL {name}{json.dumps(args)} -> {json.dumps(result)}  (client)")
+            return result
         if name == RESET_TOOL and self.m.tools and self.m.reset_tool:
             return await self._reset_tool(R, args)
         if (name == CLAUDE_TOOL and self.claude is not None) or (name == FRONTIER_TOOL and self.frontier is not None) or \
