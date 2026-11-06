@@ -58,7 +58,8 @@ def micro_cfg(q, cfg):
     key_ok = check_key(q.get("ck"))
     # end-of-turn rule: P(fire) >= TURN_TAU on TURN_K frames in a row (0.9 x 3; the all_ant80 head was benchmarked with K=1)
     return MicroCfg(url=ARGS.mt_url, lora=CFG.llm_lora,
-                    tau=CFG.turn_tau, k=CFG.turn_k,
+                    tau=CFG.turn_tau, k=CFG.turn_k, bias=CFG.decision_biases,
+                    reply_temp=CFG.reply_temp, reply_top_p=CFG.reply_top_p, reply_top_k=CFG.reply_top_k,
                     think_model=CFG.llm_base_model, undo_words=ARGS.undo_words, tool_hold_ms=CFG.tool_hold_ms,
                     persona=ARGS.persona,
                     allow_interject=not ARGS.no_interject, silence_fallback_ms=cfg.silence_ms,

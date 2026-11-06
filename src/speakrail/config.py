@@ -55,6 +55,11 @@ class Config:
     ant4: str = ""                   # "<p index>:<tau>[,...]", "" = off
     ant4_age_s: float = 0.5
     ant4_confirm_skip: bool = True
+    # the model: belong to a checkpoint, so a config sets them
+    decision_bias: str = ""          # "<token id>:<logit bias>[,...]", "" = none. Decisions stay greedy, with this added
+    reply_temp: float = 0.0          # 0 = greedy. Replies and interjections only
+    reply_top_p: float = 1.0         # 1 = off; used only when reply_temp > 0
+    reply_top_k: int = 0             # 0 = off; used only when reply_temp > 0
     # features
     notes: bool = True
     interject: bool = True
@@ -66,6 +71,10 @@ class Config:
     def ant4_triggers(self) -> list[tuple[int, float]]:
         return [(int(a), float(b)) for a, b in (x.split(":") for x in self.ant4.split(","))] if self.ant4 else []
 
+    @property
+    def decision_biases(self) -> dict[int, float]:
+        return {int(a): float(b) for a, b in (x.split(":") for x in self.decision_bias.split(","))} if self.decision_bias else {}
+
 
 def _on_if_1(v: str) -> bool:
     return v == "1"
@@ -75,8 +84,8 @@ def _off_if_0(v: str) -> bool:
     return v != "0"
 
 
-# Tuned together with the turn head, so they belong to a config, and no environment variable or flag reaches them.
-TUNED = {"turn_k", "peek_frames", "tool_hold_ms"}
+# Tuned together with the turn head or the checkpoint, so they belong to a config, and no environment variable or flag reaches them.
+TUNED = {"turn_k", "peek_frames", "tool_hold_ms", "decision_bias", "reply_temp", "reply_top_p", "reply_top_k"}
 
 # field -> (environment variable, parser). Names and meanings are the ones the project has always used.
 ENV = {

@@ -6,7 +6,8 @@
   stream(prompt, ...)        one streamed reply: yields text deltas; .stop is the stop token id that ended it
       (`stop_reason`), .n_tokens the completion tokens.
       /v1/completions with token-id prompts, stop_token_ids, skip_special_tokens false, logit_bias. The adapter is
-      picked by `model`: the LoRA name, or the base model's served name when lora is None.
+      picked by `model`: the LoRA name, or the base model's served name when lora is None. Sampled when reply_temp > 0;
+      decide() and warm() are always greedy.
 """
 from __future__ import annotations
 
@@ -16,8 +17,10 @@ import time
 
 
 class Engine:
-    def __init__(self, base: str = "http://127.0.0.1:8001", lora: str | None = "speakrail", served: str = "speakrail-base"):
+    def __init__(self, base: str = "http://127.0.0.1:8001", lora: str | None = "speakrail", served: str = "speakrail-base",
+                 reply_temp: float = 0.0, reply_top_p: float = 1.0, reply_top_k: int = 0):
         self.base, self.lora, self.served = base.rstrip("/"), lora, served
+        self.reply_temp, self.reply_top_p, self.reply_top_k = reply_temp, reply_top_p, reply_top_k
         self.url = self.base + "/v1/completions"
         self.stop = None; self.n_tokens = None; self.cached = None
 
@@ -57,9 +60,12 @@ class Engine:
 
     def stream(self, http, prompt, max_tokens, stop_ids, logit_bias=None, ignore_eos=False, cache_salt=None):
         """-> a Stream: `async for delta in it`; afterwards it.stop / it.n_tokens (also copied to self.stop / self.n_tokens)"""
-        body = {"model": self.model, "prompt": list(prompt), "max_tokens": max_tokens, "temperature": 0.0,
+        body = {"model": self.model, "prompt": list(prompt), "max_tokens": max_tokens, "temperature": self.reply_temp,
                 "stop_token_ids": list(stop_ids), "skip_special_tokens": False, "stream": True,
                 "stream_options": {"include_usage": True}}
+        if self.reply_temp > 0:
+            if self.reply_top_p < 1: body["top_p"] = self.reply_top_p
+            if self.reply_top_k > 0: body["top_k"] = self.reply_top_k
         if logit_bias: body["logit_bias"] = {str(k): v for k, v in logit_bias.items()}
         if ignore_eos: body["ignore_eos"] = True
         if cache_salt: body["cache_salt"] = cache_salt

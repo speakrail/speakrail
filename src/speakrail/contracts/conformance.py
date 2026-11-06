@@ -173,7 +173,11 @@ async def check_llm(url: str, capabilities, lora="speakrail", base="speakrail-ba
             warm = time.monotonic() - t0
             c.add("capability prefix_cache: a shared prefix is faster", warm < cold, f"cold {cold * 1000:.0f} ms, then {warm * 1000:.0f} ms")
 
-        for cap, fn in (("per_request_adapter", adapter), ("chat", chat), ("cancel", cancel), ("parallel", parallel), ("prefix_cache", prefix)):
+        async def sampling():
+            st, j = await _post(http, url, {"model": lora, "prompt": PROMPT, "max_tokens": 4, "temperature": 0.7, "top_p": 0.95, "top_k": 64})
+            c.add("capability sampling: temperature, top_p and top_k are accepted", st == 200 and j.get("usage", {}).get("completion_tokens", 0) >= 1, f"status {st}: {str(j)[:150]}")
+
+        for cap, fn in (("per_request_adapter", adapter), ("chat", chat), ("cancel", cancel), ("parallel", parallel), ("prefix_cache", prefix), ("sampling", sampling)):
             if cap in caps:
                 await c.run(f"capability {cap}", fn())
     return c.results

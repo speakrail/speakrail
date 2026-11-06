@@ -140,6 +140,18 @@ def test_capabilities_turn_features_off():
     assert r.harness["notes"] is False and "chat" in " ".join(d.why for d in r.decisions)
 
 
+def test_sampling_and_bias_come_from_the_config():
+    import dataclasses
+    wants = dataclasses.replace(CONFIGS["stub"], harness={**CONFIGS["stub"].harness, "reply_temp": 0.7, "reply_top_k": 64, "decision_bias": "106:1.0"})
+    configs = {**CONFIGS, "stub": wants}
+    r = resolve(configs, ENGINES, mac(), pinned="stub", models="/m", home="/h")
+    assert (r.harness["reply_temp"], r.harness["reply_top_k"], r.harness["decision_bias"]) == (0.7, 64, "106:1.0")
+    r = resolve(configs, engines_without("llm", "sampling"), mac(), pinned="stub", models="/m", home="/h")      # the mlx server answers 400 to any other temperature
+    assert r.harness["reply_temp"] == 0.0 and "greedily" in " ".join(d.why for d in r.decisions), r.decisions
+    assert r.harness["decision_bias"] == "106:1.0"                          # every engine has logit_bias
+    assert "sampling" not in ENGINES["llm/mlx"].capabilities
+
+
 def test_asr_without_turn_frames_is_refused():
     try:
         stub_run(engines_without("asr", "turn_head"))
@@ -195,7 +207,7 @@ def test_a_config_that_needs_more_memory_loses_to_one_that_fits():
 
 
 def test_set_parsing():
-    for key in ("turn_k", "peek_frames", "tool_hold_ms"):
+    for key in ("turn_k", "peek_frames", "tool_hold_ms", "decision_bias", "reply_temp", "reply_top_p", "reply_top_k"):
         try:
             parse_set([f"{key}=2"])
             raise AssertionError(f"{key} can be set")

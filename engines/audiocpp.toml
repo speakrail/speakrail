@@ -7,7 +7,7 @@ branch = "turn-head-2611"       # for reference; the commit is what counts
 commit = "c40b5e0b5eeab8ca39f134cf60691bfc2a7c67b7"   # upstream ae1cbcb6 + peek and turn head + VXTHEAD2
 models = "voxtral_realtime;pocket_tts"
 
-# Tested on Apple M4 Pro. The Linux Docker image in asr/audiocpp still builds its older pin until the Linux engines are redone.
+# Tested on Apple M4 Pro. Linux builds the same commit in the Docker image in asr/audiocpp.
 [build.darwin]
 args = [
   "-DCMAKE_BUILD_TYPE=Release",

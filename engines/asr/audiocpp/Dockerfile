@@ -1,4 +1,4 @@
-# Speakrail ASR: audio.cpp (speakrail fork, branch turn-head) built for Voxtral realtime only, plus the bridge.
+# Speakrail ASR: audio.cpp (speakrail fork, branch turn-head-2611) with Voxtral realtime and Pocket TTS, plus the bridge.
 #
 #   docker build -t speakrail-asr engines/asr/audiocpp
 #   docker run --gpus all -v ./models:/models -e ASR_HOST=0.0.0.0 -p 127.0.0.1:8765:8765 speakrail-asr
@@ -10,9 +10,11 @@ ARG UBUNTU_VERSION=24.04
 FROM docker.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS build
 
 ARG AUDIOCPP_REPO=https://github.com/speakrail/audio.cpp.git
-ARG AUDIOCPP_COMMIT=ba2ae40d4630874121d2dfadddd10fe97c358b89
-# 86 = RTX 3090 / A10 / A5000, 89 = RTX 4090 / L4 / L40 (add 120 for the RTX 5090)
-ARG CUDA_ARCHS="86;89"
+# keep equal to engines/audiocpp.toml
+ARG AUDIOCPP_COMMIT=c40b5e0b5eeab8ca39f134cf60691bfc2a7c67b7
+# Real code for each generation, so no compile at start-up: 75 = RTX 20 / T4, 80 = A100, 86 = RTX 30 / A10, 89 = RTX 40 / L4,
+# 90 = H100, 100 = B200, 120 / 121 = RTX 50 and newer Blackwell. 80-virtual = portable code any later GPU compiles on first start.
+ARG CUDA_ARCHS="75-real;80-real;80-virtual;86-real;89-real;90-real;100-real;120a-real;121a-real"
 # parallel compile jobs: nvcc takes 1-2 GB of RAM per job
 ARG BUILD_JOBS=16
 
@@ -27,7 +29,7 @@ RUN git clone "$AUDIOCPP_REPO" audio.cpp && cd audio.cpp && git checkout "$AUDIO
 RUN cd audio.cpp && \
     cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \
-        -DAUDIOCPP_MODEL_SET=custom -DAUDIOCPP_MODELS=voxtral_realtime \
+        -DAUDIOCPP_MODEL_SET=custom "-DAUDIOCPP_MODELS=voxtral_realtime;pocket_tts" \
         -DENGINE_ENABLE_CPU_ALL_VARIANTS=ON \
         -DENGINE_ENABLE_CUDA=ON -DENGINE_ENABLE_CUDA_GRAPHS=ON -DENGINE_ENABLE_VULKAN=OFF -DENGINE_ENABLE_OPENMP=ON \
         -DENGINE_BUILD_EXAMPLES=OFF -DENGINE_BUILD_TESTS=OFF -DENGINE_BUILD_WARMBENCH=OFF \

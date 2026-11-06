@@ -241,10 +241,48 @@ def test_stubs_pass_conformance():
 
 def test_conformance_catches_broken_engines():
     for engine, flag, expected in ((STUBS[2], "ignore_allowed", "allowed set"), (STUBS[2], "none_on_eos", "end-of-turn"), (STUBS[2], "ignore_bias", "logit_bias"),
-                                   (STUBS[2], "no_prefix_cache", "prefix_cache"), (STUBS[0], "no_peek", "peek"), (STUBS[1], "silent", "silent")):
+                                   (STUBS[2], "no_prefix_cache", "prefix_cache"), (STUBS[2], "greedy_only", "sampling"), (STUBS[0], "no_peek", "peek"), (STUBS[1], "silent", "silent")):
         results = _conformance(engine, flag)
         failed = [r.name for r in results if not r.ok]
         assert any(expected in n for n in failed) or any(expected in r.name for r in results if not r.ok), (flag, failed)
+
+
+def test_requests_carry_the_sampling_and_the_bias():
+    from speakrail.harness.llm_engine import Engine
+
+    def sent(engine):
+        return engine.stream(None, [1, 2], 8, [3]).body
+    greedy = sent(Engine())
+    assert greedy["temperature"] == 0.0 and "top_p" not in greedy and "top_k" not in greedy
+    off = sent(Engine(reply_temp=0.0, reply_top_p=0.95, reply_top_k=64))    # top_p and top_k only mean something when sampling
+    assert "top_p" not in off and "top_k" not in off
+    body = sent(Engine(reply_temp=0.7, reply_top_p=0.95, reply_top_k=64))
+    assert (body["temperature"], body["top_p"], body["top_k"]) == (0.7, 0.95, 64)
+
+    class Decide(Engine):
+        async def _post(self, http, url, body):
+            self.body = body
+            return {"choices": [{"logprobs": {"tokens": ["token_id:106"], "top_logprobs": [{"token_id:106": -0.1, "token_id:16": -3.0}]}}]}
+    e = Decide(reply_temp=0.7, reply_top_p=0.95, reply_top_k=64)
+    asyncio.run(e.decide(None, [1], [106, 16], {106: 1.0, 20: 5.0}))
+    assert e.body["temperature"] == 0.0 and "top_k" not in e.body           # decisions stay greedy
+    assert e.body["logit_bias"] == {"106": 1.0}                             # only for tokens this decision allows
+
+
+def test_the_harness_passes_the_settings_on():
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from speakrail.config import load
+    from speakrail.harness import server
+    args = SimpleNamespace(mt_url="http://x/v1/completions", undo_words=2, persona="nova", no_interject=False, notes=False, no_phrase_cache=True, safety_yield_s=1.5,
+                           claude=False, claude_model="", claude_mode="auto", claude_cwd="~", frontier=False)
+    was = server.ARGS, server.CFG
+    server.ARGS, server.CFG = args, replace(load({}), decision_bias="106:1.0", reply_temp=0.7, reply_top_p=0.95, reply_top_k=64)
+    try:
+        m = server.micro_cfg({}, SimpleNamespace(silence_ms=1000))
+    finally:
+        server.ARGS, server.CFG = was
+    assert m.bias == {106: 1.0} and (m.reply_temp, m.reply_top_p, m.reply_top_k) == (0.7, 0.95, 64)
 
 
 if __name__ == "__main__":

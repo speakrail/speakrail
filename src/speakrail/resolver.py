@@ -136,7 +136,7 @@ def parse_set(items) -> dict:
             raise ConfigError(f"--set wants key=value, got {item!r}")
         key, text = item.split("=", 1)
         if key in TUNED:
-            raise ConfigError(f"{key} is tuned together with the turn head and can't be changed here. It belongs to a config.")
+            raise ConfigError(f"{key} is tuned together with the turn head or the checkpoint and can't be changed here. It belongs to a config.")
         if key not in HARNESS_FIELDS:
             raise ConfigError(f"unknown setting {key!r}")
         kind = HARNESS_FIELDS[key]
@@ -242,6 +242,8 @@ def resolve(configs: dict, engines: dict, hw: Hardware, *, pinned=None, sets=Non
     for cap in ("chat", "parallel", "per_request_adapter"):
         if cap not in llm:
             off("notes", False, f"notes need {cap}, which {c.engines['llm']} doesn't have")
+    if "sampling" not in llm:
+        off("reply_temp", 0.0, f"{c.engines['llm']} can only reply greedily")
 
     if benchmark:
         frame, peek, tok_s = benchmark.get("asr_frame_ms"), benchmark.get("asr_peek_ms"), benchmark.get("llm_decode_tok_s")
@@ -275,7 +277,8 @@ def resolve(configs: dict, engines: dict, hw: Hardware, *, pinned=None, sets=Non
     return r
 
 
-FEATURES = (("spec", "speculation"), ("peek", "peek"), ("ant4", "ANT4 early trigger"), ("notes", "listening notes"), ("interject", "interjections"))
+FEATURES = (("spec", "speculation"), ("peek", "peek"), ("ant4", "ANT4 early trigger"), ("notes", "listening notes"), ("interject", "interjections"),
+            ("reply_temp", "reply temperature"), ("decision_bias", "decision bias"))
 
 
 def explain(r: Resolved) -> str:

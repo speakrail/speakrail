@@ -18,11 +18,22 @@ def test_defaults_match_the_old_code():
                     home=str(Path.home() / ".speakrail"), models_dir="", engines_path="", tokenizer_dir=str(ROOT / "models/speakrail-gemma/tokenizer"), phrase_cache_dir=str(ROOT / "run/phrase_cache"), sessions_dir="",
                     ui_host="127.0.0.1", ui_port=8080, idle_offload_min=-1.0, host_url="", no_color=False, persona="nova", voice="", home_city="London", home_timezone="Europe/London",
                     silence_ms=1000, turn_tau=0.9, turn_k=3, spec=True, peek=True, peek_frames=0, ant4="", ant4_age_s=0.5, ant4_confirm_skip=True,
+                    decision_bias="", reply_temp=0.0, reply_top_p=1.0, reply_top_k=0,
                     notes=True, interject=True, tool_hold_ms=300, search="off", searxng_url="http://127.0.0.1:8888/search")
     for k, v in expected.items():
         assert getattr(c, k) == v, (k, getattr(c, k), v)
     assert set(expected) == {f for f in c.__dataclass_fields__}, "a setting has no expected default here"
-    assert c.ant4_triggers == []
+    assert c.ant4_triggers == [] and c.decision_biases == {}
+
+
+def test_model_settings():
+    assert load({"DECISION_BIAS": "106:1.0", "REPLY_TEMP": "0.7", "REPLY_TOP_P": "0.95", "REPLY_TOP_K": "64"}) == load({})     # they come from the checkpoint's config
+    path = _file({"decision_bias": "106:1.0,16:-0.5", "reply_temp": 0.7, "reply_top_p": 0.95, "reply_top_k": 64})
+    try:
+        c = load({"SPEAKRAIL_CONFIG": path})
+        assert c.decision_biases == {106: 1.0, 16: -0.5} and (c.reply_temp, c.reply_top_p, c.reply_top_k) == (0.7, 0.95, 64)
+    finally:
+        os.unlink(path)
 
 
 def test_every_setting_has_an_env_var():

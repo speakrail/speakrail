@@ -107,6 +107,9 @@ class MicroCfg:
     url: str = "http://127.0.0.1:8001/v1/completions"
     lora: str = "speakrail"          # the adapter's name in vLLM (--lora-modules speakrail=...)
     bias: dict = field(default_factory=dict)   # optional per-decision logit bias (token id -> bias); none by default
+    reply_temp: float = 0.0          # replies and interjections; 0 = greedy
+    reply_top_p: float = 1.0
+    reply_top_k: int = 0
     undo_words: int = 2              # early start: a non-backchannel word while <= this many reply words played -> undo
     result_nudge_s: float = 5.0      # an async result is still unreported and the user has been quiet this long:
                                      # the harness takes the turn so the model reports it (0 = off)
@@ -263,7 +266,8 @@ class MicroSession(Session):
     def __init__(self, cfg, hub, send, log_dir=None, mcfg: MicroCfg | None = None):
         super().__init__(cfg, hub, send, log_dir)
         self.m = mcfg or MicroCfg()
-        self.llm = Engine(self.m.url.removesuffix("/v1/completions"), self.m.lora, served=self.m.think_model)
+        self.llm = Engine(self.m.url.removesuffix("/v1/completions"), self.m.lora, served=self.m.think_model,
+                          reply_temp=self.m.reply_temp, reply_top_p=self.m.reply_top_p, reply_top_k=self.m.reply_top_k)
         tools = [P.tool_declaration("web_search", SEARCH_TOOL_SPEC)] if (self.m.search and cfg.search != "off") else []
         if self.m.tools: tools += [P.tool_declaration(n, CAT[n]) for n in LOCAL_TOOLS]
         if self.m.tools and self.m.reset_tool: tools.append(P.tool_declaration(RESET_TOOL, RESET_TOOL_SPEC))

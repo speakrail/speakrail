@@ -40,7 +40,7 @@ services:
     build:
       context: engines/asr/audiocpp
       args:
-        CUDA_ARCHS: ${ASR_CUDA_ARCHS:-86;89}
+        CUDA_ARCHS: ${ASR_CUDA_ARCHS:-75-real;80-real;80-virtual;86-real;89-real;90-real;100-real;120a-real;121a-real}
     <<: *gpu
     volumes: *models-ro
     environment:

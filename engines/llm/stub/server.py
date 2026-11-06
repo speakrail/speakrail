@@ -61,6 +61,8 @@ async def completions(request):
         return bad("prompt must be a list of token ids")
     if model not in MODELS:
         return bad(f"unknown model {model!r}")
+    if "greedy_only" in FLAGS and float(b.get("temperature", 0)) != 0:
+        return bad("only temperature 0 is implemented")
     max_tokens = int(b.get("max_tokens", 16))
     if len(prompt) + max_tokens > MAX_CONTEXT:
         return bad("context too long")

@@ -13,6 +13,7 @@ CAPABILITIES = {
         "per_request_adapter": "the base model and the LoRA are chosen per request by `model`",
         "cancel": "closing a stream stops the work",
         "prefix_cache": "a request sharing a prefix with an earlier one is not prefilled again",
+        "sampling": "temperature above 0, with top_p and top_k; without it replies are greedy",
     },
     "asr": {
         "transcribe": "timed words from speech",
