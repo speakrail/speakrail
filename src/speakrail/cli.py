@@ -1,4 +1,4 @@
-"""speakrail run | config | doctor | bench | engine"""
+"""speakrail run | start | stop | status | logs | load | offload | config | doctor | bench | engine"""
 from __future__ import annotations
 
 import argparse
@@ -11,6 +11,7 @@ from .contracts.conformance import check
 from .contracts.fidelity import compare
 from .manifest import ManifestError, discover
 from .supervisor import EngineError, Supervisor, install
+from .ui import say
 
 
 def _engine(engines, name):
@@ -51,7 +52,7 @@ def cmd_install(engines, a):
 
 
 def _say(engine, state, detail):
-    print(f"[{engine}] {state}{': ' + detail if detail else ''}", flush=True)
+    say(f"[{engine}] {state}{': ' + detail if detail else ''}")
 
 
 def cmd_run(engines, a):
@@ -151,9 +152,19 @@ def main(argv=None) -> int:
         sp.add_argument("--param", action="append", metavar="ENGINE:KEY=VALUE", help="override an engine param, for example asr/audiocpp:threads=2")
         sp.add_argument("--force", action="store_true", help="try a config that doesn't fit this machine's memory")
 
-    run_p = top.add_parser("run", help="start everything for this machine")
-    choices(run_p)
-    run_p.add_argument("--no-bench", action="store_true", help="skip the first-launch benchmark")
+    run_p = top.add_parser("run", help="start everything for this machine, in this terminal")
+    start_p = top.add_parser("start", help="start everything in the background")
+    for sp in (run_p, start_p):
+        choices(sp)
+        sp.add_argument("--no-bench", action="store_true", help="skip the first-launch benchmark")
+    top.add_parser("stop", help="stop what's running, from any terminal")
+    top.add_parser("status", help="what's running and how much memory it holds")
+    logs_p = top.add_parser("logs", help="show a log")
+    logs_p.add_argument("name", nargs="?", help="harness, or an engine like asr-audiocpp; without it, the background service's")
+    logs_p.add_argument("-n", dest="lines", type=int, default=40, help="how many lines")
+    logs_p.add_argument("-f", dest="follow", action="store_true", help="keep following it")
+    top.add_parser("load", help="load the engines again").add_argument("--force", action="store_true", help="even if they may not fit in memory")
+    top.add_parser("offload", help="unload the engines until `speakrail load`; the web page stays up").add_argument("--force", action="store_true", help="even if it ends an open session")
     cfg_p = top.add_parser("config", help="what would run here, and why")
     cfg_p.add_argument("action", nargs="?", choices=["explain", "list"], default="explain")
     choices(cfg_p)
@@ -163,7 +174,10 @@ def main(argv=None) -> int:
     try:
         if a.group == "engine":
             return a.fn(discover(), a) or 0
-        from . import doctor, run
+        from . import doctor, run, service
+        commands = {"start": service.start_main, "stop": service.stop_main, "status": service.status_main, "logs": service.logs_main, "load": service.load_main, "offload": service.offload_main}
+        if a.group in commands:
+            return commands[a.group](a)
         if a.group == "run":
             return run.main(a)
         if a.group == "doctor":

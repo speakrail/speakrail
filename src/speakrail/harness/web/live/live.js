@@ -7,14 +7,19 @@ const SETTINGS = ["barge", "search", "showlog"];
 
 let ws, micCtx, playCtx, worklet, stream, analyser, anaBuf, outGain;
 let sources = [], playCursor = 0, uttStart = 0, uttId = 0;
+let waking = false, failed = false;   // the engines are loading for this session; the server refused it
 const ijUtts = new Set();   // utts of v3 interjections (live tasks): never cut by the next utt
 let running = false;
 
 // ---------------------------------------------------------------- settings dropdown
 const panel = $("panel"), gear = $("gear");
-gear.onclick = (e) => { e.stopPropagation(); const open = panel.hidden; panel.hidden = !open; gear.setAttribute("aria-expanded", open); };
+gear.onclick = (e) => { e.stopPropagation(); const open = panel.hidden; closeMenus(); panel.hidden = !open; gear.setAttribute("aria-expanded", open); };
 panel.onclick = (e) => e.stopPropagation();
-document.addEventListener("click", () => { panel.hidden = true; gear.setAttribute("aria-expanded", "false"); });
+function closeMenus() {
+  panel.hidden = true; gear.setAttribute("aria-expanded", "false");
+  $("engPanel").hidden = true; $("engines").setAttribute("aria-expanded", "false");
+}
+document.addEventListener("click", closeMenus);
 for (const id of SETTINGS) {
   const el = $(id), saved = localStorage.getItem("speakrail." + id);
   if (saved != null) { if (el.type === "checkbox") el.checked = saved === "1"; else el.value = saved; }
@@ -63,21 +68,21 @@ function drawBlob(t) {
   const p0 = pts[0], p1 = pts[1]; path.quadraticCurveTo(p0[0], p0[1], (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2);
   path.closePath();
 
-  // halo: wide soft pink glow (the top bar's #f4b6c9), stronger while the assistant speaks
+  // halo: wide soft pink glow (the top bar's #f59eb9), stronger while the assistant speaks
   const glow = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 2.2);
   const halo = bot > 0.02 ? 0.12 + bot * 0.20 : 0.08 + user * 0.12;
-  glow.addColorStop(0, `rgba(244,182,201,${halo})`); glow.addColorStop(1, "rgba(244,182,201,0)");
+  glow.addColorStop(0, `rgba(245,158,185,${halo})`); glow.addColorStop(1, "rgba(245,158,185,0)");
   ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
 
   // body: semi-transparent white, brighter core
   const fill = ctx.createRadialGradient(cx - R * 0.15, cy - R * 0.2, R * 0.1, cx, cy, R * 1.15);
-  fill.addColorStop(0, `rgba(250,250,250,${0.78 + user * 0.15})`);
-  fill.addColorStop(0.7, `rgba(250,250,250,${0.42 + user * 0.15})`);
-  fill.addColorStop(1, "rgba(250,250,250,0.06)");
-  ctx.shadowColor = "rgba(250,250,250,0.35)"; ctx.shadowBlur = 40 + user * 40;
+  fill.addColorStop(0, `rgba(252,245,247,${0.78 + user * 0.15})`);
+  fill.addColorStop(0.7, `rgba(252,245,247,${0.42 + user * 0.15})`);
+  fill.addColorStop(1, "rgba(252,245,247,0.06)");
+  ctx.shadowColor = "rgba(252,245,247,0.35)"; ctx.shadowBlur = 40 + user * 40;
   ctx.fillStyle = fill; ctx.fill(path);
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = `rgba(250,250,250,${0.18 + user * 0.2})`; ctx.lineWidth = 1; ctx.stroke(path);
+  ctx.strokeStyle = `rgba(252,245,247,${0.18 + user * 0.2})`; ctx.lineWidth = 1; ctx.stroke(path);
 
   // the assistant's voice: a second, thinner membrane pulsing outside the body
   if (bot > 0.02) {
@@ -86,7 +91,7 @@ function drawBlob(t) {
       const a = (i / N) * Math.PI * 2, r = R * (1.12 + bot * 0.22 + 0.04 * Math.sin(9 * a + s * 5));
       i ? ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a)) : ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
     }
-    ctx.strokeStyle = `rgba(250,250,250,${0.12 + bot * 0.25})`; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = `rgba(252,245,247,${0.12 + bot * 0.25})`; ctx.lineWidth = 1.5; ctx.stroke();
   }
   // output level from the playback analyser (drives `bot`)
   if (analyser && botSpeaking) {
@@ -175,7 +180,8 @@ function onMessage(ev) {
   if (ev.data instanceof ArrayBuffer) { const dv = new DataView(ev.data); playChunk(dv.getUint16(0, true), new Int16Array(ev.data, 4)); return; }
   const m = JSON.parse(ev.data);
   switch (m.type) {
-    case "ready": break;
+    case "info": if (m.code === "loading") { waking = true; setState("loading"); showBot(m.message, false); pollEngines(); } break;
+    case "ready": if (waking) { waking = false; setState("listening"); showBot("", false); } break;
     case "head": lvl.head = m.p[0]; break;
     case "word": showUser(userRaw + m.raw); break;
     case "endpoint": showUser(m.text); break;
@@ -190,7 +196,7 @@ function onMessage(ev) {
     case "stop_audio": stopPlayback(); botSpeaking = false; setState("listening"); if (botRaw) showBot(botRaw, true); userRaw = ""; fadeBotLater(2500); break;
     case "turn": logTurn(m); break;
     case "duck": if (outGain) outGain.gain.setTargetAtTime(m.gain, playCtx.currentTime, 0.03); break;
-    case "error": setState("error"); showBot("error in " + m.where + ": " + m.detail, true); break;
+    case "error": failed = true; setState("error"); showBot(m.code ? m.detail : "error in " + m.where + ": " + m.detail, true); break;
     case "reset": showBot("(new chat" + (m.instructions ? ": " + m.instructions : "") + ")", false); fadeBotLater(4000); break;   // reset_chat
   }
 }
@@ -199,7 +205,7 @@ function onMessage(ev) {
 const WORKLET = `class Cap extends AudioWorkletProcessor { process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(new Float32Array(ch)); return true; } } registerProcessor('cap', Cap);`;
 
 async function start() {
-  $("go").disabled = true;
+  $("go").disabled = true; failed = false; waking = false;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: CAPTURE_HZ } });
   } catch (e) { setState("error"); showBot("Microphone denied: " + e.message, true); $("go").disabled = false; return; }
@@ -231,7 +237,7 @@ async function start() {
   worklet.connect(micCtx.destination);
   running = true; lockSettings(true);
   $("go").hidden = true; $("controls").hidden = false;
-  setState("listening");
+  if (!failed) setState(waking ? "loading" : "listening");
 }
 
 function stop(fromClose) {
@@ -242,7 +248,8 @@ function stop(fromClose) {
   if (micCtx) micCtx.close();
   lvl.micTarget = 0; lvl.head = 0;
   $("controls").hidden = true; $("go").hidden = false; $("go").disabled = false; lockSettings(false);
-  setState("idle");
+  setState(failed ? "error" : "idle");   // a refused session keeps saying why
+  pollEngines();
 }
 
 function downsample(buf, from, to) {
@@ -274,9 +281,70 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && running && !["SELECT", "INPUT", "BUTTON"].includes(document.activeElement.tagName)) { e.preventDefault(); $("interrupt").click(); }
 });
 
+// ---------------------------------------------------------------- engines dropdown
+const WHY = { manual: "Offloaded on request. It stays that way until you press Load.", idle: "Offloaded after no session. Starting a session loads it again.", memory: "Offloaded because memory ran short. Starting a session loads it again if it fits." };
+const engPanel = $("engPanel"), engChip = $("engines");
+let engTimer = null;
+engChip.onclick = (e) => { e.stopPropagation(); const open = engPanel.hidden; closeMenus(); engPanel.hidden = !open; engChip.setAttribute("aria-expanded", open); if (open) pollEngines(); };
+engPanel.onclick = (e) => e.stopPropagation();
+const gib = (x) => x.toFixed(1);
+const minutes = (s) => s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
+
+function showEngines(s) {
+  engChip.hidden = false;
+  $("engLed").className = "led " + s.state;
+  $("engState").textContent = s.state;
+  $("engWhy").hidden = !(s.state === "stopped" && WHY[s.reason]); $("engWhy").textContent = WHY[s.reason] || "";
+  const rows = $("engRows"); rows.replaceChildren();
+  for (const [name, e] of Object.entries(s.engines)) {
+    const row = document.createElement("div"); row.className = "eng";
+    const cell = (cls, text) => { const c = document.createElement("span"); c.className = cls; c.textContent = text; row.appendChild(c); };
+    cell("name", name); cell("st " + e.state, e.state); cell("mem", e.memory_gib != null ? gib(e.memory_gib) + " GB" : "");
+    rows.appendChild(row);
+  }
+  const notes = [];
+  if (s.machine) notes.push(`${gib(s.machine.free_gib)} of ${Math.round(s.machine.total_gib)} GB free. The stack peaks at ${gib(s.peak_gib)} GB.`);
+  if (s.idle_in_s != null) notes.push(`Unloads in ${minutes(s.idle_in_s)} if no session opens.`);
+  else if (s.state === "ready" && s.sessions) notes.push(`${s.sessions} session${s.sessions === 1 ? "" : "s"} open.`);
+  else if (s.state === "ready" && !s.idle_offload_s) notes.push("Stays loaded.");
+  $("engNote").textContent = notes.join(" ");
+  $("engWarn").hidden = !s.warning; $("engWarn").textContent = s.warning || "";
+  $("engErr").hidden = !s.error; $("engErr").textContent = s.error || "";
+  const busy = s.state === "loading" || s.state === "unloading";
+  $("engLoad").hidden = s.state === "ready"; $("engLoad").disabled = busy;
+  $("engOffload").hidden = s.state === "stopped"; $("engOffload").disabled = busy;
+}
+
+async function pollEngines() {
+  clearTimeout(engTimer);
+  if (!document.hidden || !engPanel.hidden) {
+    try {
+      const r = await fetch("v1/control/status" + (engPanel.hidden ? "" : "?memory=1"));
+      if (r.status === 200) showEngines(await r.json());
+      else if (r.status !== 502 && r.status !== 503 || (await r.json()).error?.code === "no_host") { engChip.hidden = true; return; }   // nothing to control from here
+    } catch (e) { /* the server is restarting: keep what's shown, try again */ }
+  }
+  engTimer = setTimeout(pollEngines, 4000);
+}
+
+async function engineAction(path, askFirst) {
+  const post = (force) => fetch("v1/control/" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
+  let r = await post(false);
+  if (r.status === 409) {
+    const err = (await r.json()).error;
+    if (askFirst[err.code] && confirm(`${err.message}\n\n${askFirst[err.code]}`)) r = await post(true);
+    else if (!askFirst[err.code]) { $("engErr").hidden = false; $("engErr").textContent = err.message; }
+  }
+  pollEngines();
+}
+$("engLoad").onclick = () => { $("engLoad").disabled = true; engineAction("load", { not_enough_memory: "Load anyway?" }); };
+$("engOffload").onclick = () => { $("engOffload").disabled = true; engineAction("offload", { session_active: "End the session and offload?" }); };
+pollEngines();
+
 // ?demo=1: a static preview of the running state (subtitles + a search card + a moving blob), no microphone needed
 if (new URLSearchParams(location.search).get("demo") === "1") {
   if (new URLSearchParams(location.search).get("settings") === "1") panel.hidden = false;
+  if (new URLSearchParams(location.search).get("engines") === "1") engPanel.hidden = false;
   $("go").hidden = true; $("controls").hidden = false; setState("speaking");
   showUser("What's the weather like in Berlin right now?");
   cardSearch({ turn: 1, query: "current weather in Berlin" });

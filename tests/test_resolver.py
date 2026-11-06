@@ -58,8 +58,7 @@ def test_mac_config_is_what_was_measured():
     h = run(mac()).harness
     assert (h["turn_k"], h["spec"], h["ant4"], h["peek_frames"], h["notes"], h["tool_hold_ms"]) == (1, True, "", 8, False, 300), h
     assert h["tts_engine"] == "pocket" and h["tts_model"] == "pocket-tts"
-    assert h["tokenizer_dir"] == "/m/speakrail-e4b-adapter/tokenizer" and h["voice"].endswith("harness/voices/female_a.wav")
-    assert Path(h["voice"]).exists()
+    assert h["tokenizer_dir"] == "/m/speakrail-e4b-adapter/tokenizer" and h["voice"] == "jane", "a built-in voice is a name, not a file of ours"
 
 
 def test_experimental_only_by_name():
@@ -196,8 +195,14 @@ def test_a_config_that_needs_more_memory_loses_to_one_that_fits():
 
 
 def test_set_parsing():
-    assert parse_set(["notes=true", "turn_k=2", "turn_tau=0.8", "voice=x.wav"]) == {"notes": True, "turn_k": 2, "turn_tau": 0.8, "voice": "x.wav"}
-    for bad in (["notes"], ["nope=1"], ["turn_k=abc"], ["notes=maybe"]):
+    for key in ("turn_k", "peek_frames", "tool_hold_ms"):
+        try:
+            parse_set([f"{key}=2"])
+            raise AssertionError(f"{key} can be set")
+        except ConfigError as e:
+            assert "tuned" in str(e)
+    assert parse_set(["notes=true", "turn_tau=0.8", "voice=x.wav"]) == {"notes": True, "turn_tau": 0.8, "voice": "x.wav"}
+    for bad in (["notes"], ["nope=1"], ["turn_tau=abc"], ["notes=maybe"]):
         try:
             parse_set(bad)
         except ConfigError:

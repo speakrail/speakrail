@@ -8,8 +8,9 @@ from .config import CFG
 from .contracts import REQUIRED
 from .manifest import render, values_for
 from .resolver import ResolveError, explain
-from .run import paths, setup
+from .run import missing_voice, paths, setup
 from .supervisor import port_free
+from .ui import say
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
 
@@ -57,6 +58,8 @@ def checks(args) -> list[tuple[str, str, str]]:
         out.append((OK, "Tokenizer found", ""))
     if (voice := r.harness.get("voice")) and "/" in voice and not Path(voice).exists():
         out.append((FAIL, f"Voice missing: {voice}", "Pick another one with --set voice=..."))
+    if (problem := missing_voice(r)):
+        out.append((FAIL, problem, ""))
     if missing_models and hw.disk_free_gib < c.disk_gib:
         out.append((FAIL, f"{hw.disk_free_gib:.0f} GB disk free, the models need {c.disk_gib:.0f} GB", "Free some disk space"))
     else:
@@ -71,9 +74,9 @@ def checks(args) -> list[tuple[str, str, str]]:
 def main(args) -> int:
     results = checks(args)
     for status, what, fix in results:
-        print(f"{status:5} {what}" + (f"\n      -> {fix}" if fix else ""))
+        say(f"{status:5} {what}" + (f"\n      -> {fix}" if fix else ""))
     bad = sum(s == FAIL for s, _, _ in results)
-    print("\nReady to run." if not bad else f"\n{bad} problem{'s' if bad != 1 else ''} to fix.")
+    say("\nReady to run." if not bad else f"\n{bad} problem{'s' if bad != 1 else ''} to fix.")
     return 1 if bad else 0
 
 
@@ -84,9 +87,9 @@ def explain_main(args) -> int:
         if (stored := stored_benchmark(r)):
             r, configs, engines = setup(args, benchmark=stored)
     except (ResolveError, ValueError) as e:
-        print(e)
+        say(e)
         return 2
-    print(explain(r))
+    say(explain(r))
     return 0
 
 
@@ -98,5 +101,5 @@ def list_main(args) -> int:
     configs, engines = discover_configs(home=paths()[0]), discover()
     for c in sorted(configs.values(), key=lambda x: (-x.priority, x.name)):
         why = None if hw is None else (_unusable(c, hw, engines) or _too_big(c, hw))
-        print(f"{c.name:16} {c.status:13} {'fits here' if hw and not why else 'not here: ' + (why or 'no hardware found'):50} {c.description}")
+        say(f"{c.name:16} {c.status:13} {'fits here' if hw and not why else 'not here: ' + (why or 'no hardware found'):50} {c.description}")
     return 0

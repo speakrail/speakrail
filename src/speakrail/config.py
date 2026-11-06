@@ -36,6 +36,10 @@ class Config:
     # web UI
     ui_host: str = "127.0.0.1"
     ui_port: int = 8080
+    # engines unload after this long with no session; -1 = the platform's default, 0 = never
+    idle_offload_min: float = -1.0
+    host_url: str = ""               # the host's control port; set by `speakrail run` for the harness it starts
+    no_color: bool = False           # the terminal stays plain; on for any NO_COLOR, as https://no-color.org asks
     # assistant
     persona: str = "nova"
     voice: str = ""
@@ -54,7 +58,7 @@ class Config:
     # features
     notes: bool = True
     interject: bool = True
-    tool_hold_ms: int = 600
+    tool_hold_ms: int = 300
     search: str = "off"
     searxng_url: str = "http://127.0.0.1:8888/search"
 
@@ -71,17 +75,20 @@ def _off_if_0(v: str) -> bool:
     return v != "0"
 
 
+# Tuned together with the turn head, so they belong to a config, and no environment variable or flag reaches them.
+TUNED = {"turn_k", "peek_frames", "tool_hold_ms"}
+
 # field -> (environment variable, parser). Names and meanings are the ones the project has always used.
 ENV = {
     "asr_url": ("ASR_URL", str), "llm_url": ("LLM_URL", str), "llm_lora": ("LLM_LORA", str), "llm_base_model": ("LLM_BASE_MODEL", str),
     "tts_engine": ("TTS_ENGINE", str), "tts_url": ("TTS_URL", str), "tts_model": ("TTS_MODEL", str), "breeze_int8": ("BREEZE_INT8", str),
     "home": ("SPEAKRAIL_HOME", str), "models_dir": ("MODELS_DIR", str), "engines_path": ("SPEAKRAIL_ENGINES_PATH", str),
     "tokenizer_dir": ("SPEAKRAIL_TOKENIZER_DIR", str), "phrase_cache_dir": ("PHRASE_CACHE_DIR", str), "sessions_dir": ("SESSIONS_DIR", str),
-    "ui_host": ("UI_HOST", str), "ui_port": ("UI_PORT", int),
+    "ui_host": ("UI_HOST", str), "ui_port": ("UI_PORT", int), "idle_offload_min": ("IDLE_OFFLOAD_MIN", float), "host_url": ("SPEAKRAIL_HOST_URL", str), "no_color": ("NO_COLOR", bool),
     "persona": ("PERSONA", str), "voice": ("VOICE", str), "home_city": ("HOME_CITY", str), "home_timezone": ("HOME_TIMEZONE", str),
-    "silence_ms": ("SILENCE_MS", int), "turn_tau": ("TURN_TAU", float), "turn_k": ("TURN_K", int), "spec": ("SPEC", _on_if_1),
-    "peek": ("PEEK", _off_if_0), "peek_frames": ("PEEK_FRAMES", int), "ant4": ("ANT4", str), "ant4_age_s": ("ANT4_AGE_S", float), "ant4_confirm_skip": ("ANT4_CONFIRM_SKIP", _on_if_1),
-    "notes": ("NOTES", _on_if_1), "interject": ("INTERJECT", _off_if_0), "tool_hold_ms": ("TOOL_HOLD_MS", int), "search": ("SEARCH", str),
+    "silence_ms": ("SILENCE_MS", int), "turn_tau": ("TURN_TAU", float), "spec": ("SPEC", _on_if_1),
+    "peek": ("PEEK", _off_if_0), "ant4": ("ANT4", str), "ant4_age_s": ("ANT4_AGE_S", float), "ant4_confirm_skip": ("ANT4_CONFIRM_SKIP", _on_if_1),
+    "notes": ("NOTES", _on_if_1), "interject": ("INTERJECT", _off_if_0), "search": ("SEARCH", str),
     "searxng_url": ("SEARXNG_URL", str),
 }
 

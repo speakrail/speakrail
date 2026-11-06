@@ -113,16 +113,24 @@ def _pid_on(port):
     return int(out[0])
 
 
-def test_an_engine_dying_stops_everything():
+def test_an_engine_dying_stops_the_engines_but_not_the_page():
+    """what happens next is in test_control.py: the status says why, and a load brings it back"""
     r = Run("--no-bench")
     try:
         r.wait_up()
         os.kill(_pid_on(18000), signal.SIGKILL)
-        code = r.p.wait(timeout=15)
-        assert code == 1, (code, r.text()[-500:])
-        assert "llm/stub" in r.text() and "Stopping" in r.text()
+        t0 = time.monotonic()
+        while "Engine failed" not in r.text():
+            assert time.monotonic() - t0 < 15, r.text()[-500:]
+            time.sleep(0.1)
+        assert "llm/stub" in r.text()
+        t0 = time.monotonic()
+        while not all(port_free(p) for p in (18091, 18765)):
+            assert time.monotonic() - t0 < 15, "the other engines kept running"
+            time.sleep(0.1)
+        assert r.p.poll() is None and check_health(f"http://127.0.0.1:{UI}/")
     finally:
-        r.stop()
+        assert r.stop() == 0
     assert wait_ports_free(), "ports left open"
 
 

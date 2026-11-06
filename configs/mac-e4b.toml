@@ -13,7 +13,7 @@ llm = "llm/mlx"
 
 [harness]
 tokenizer_dir = "${models}/speakrail-e4b-adapter/tokenizer"
-voice = "female_a.wav"
+voice = "jane"           # one of Pocket's built-in voices
 llm_lora = "speakrail"
 llm_base_model = "speakrail-base"
 turn_k = 1                # all_ant80 was benchmarked at K=1

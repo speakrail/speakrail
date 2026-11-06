@@ -4,15 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Speakrail</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap">
 <link rel="stylesheet" href="static/live.css">
 </head>
 <body>
 <div class="top-bar"></div>
 
 <header class="top">
+  <div class="menus">
   <div class="menu">
     <button id="gear" class="chip" aria-haspopup="true" aria-expanded="false">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -26,6 +24,22 @@
       <div class="row check"><label><input type="checkbox" id="showlog"> show turn timings</label></div>
       <div class="hint">Settings apply on the next start. Space = interrupt.</div>
     </div>
+  </div>
+  <div class="menu">
+    <button id="engines" class="chip" aria-haspopup="true" aria-expanded="false" hidden><span id="engLed" class="led"></span>Engines</button>
+    <div id="engPanel" class="panel" hidden>
+      <div class="summary"><span>Engines</span><b id="engState"></b></div>
+      <div id="engWhy" class="why" hidden></div>
+      <div id="engRows"></div>
+      <div id="engNote" class="note"></div>
+      <div id="engWarn" class="note warn" hidden></div>
+      <div id="engErr" class="note err" hidden></div>
+      <div class="actions">
+        <button id="engLoad" class="chip primary">Load</button>
+        <button id="engOffload" class="chip">Offload</button>
+      </div>
+    </div>
+  </div>
   </div>
   <div class="brand">Speakrail <span class="dot"></span></div>
   <div class="status">

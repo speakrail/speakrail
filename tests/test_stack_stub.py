@@ -25,8 +25,10 @@ def tone(seconds):
 
 def start_harness(sup, sessions):
     tts = sup.running["tts/stub"].engine
+    conf = sessions / "config.json"
+    conf.write_text(json.dumps({"turn_k": 1}))        # the stub head is built for K=1, and only a config can set that
     env = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1", "ASR_URL": sup.url("asr/stub"), "LLM_URL": sup.url("llm/stub"), "TTS_URL": sup.url("tts/stub"),
-           "TTS_ENGINE": tts.harness["worker"], "TTS_MODEL": tts.harness["model"], "UI_PORT": str(UI_PORT), "SESSIONS_DIR": str(sessions), "VOICE": "", "TURN_K": "1", "PHRASE_CACHE_DIR": str(sessions / "phrases")}
+           "TTS_ENGINE": tts.harness["worker"], "TTS_MODEL": tts.harness["model"], "SPEAKRAIL_CONFIG": str(conf), "UI_PORT": str(UI_PORT), "SESSIONS_DIR": str(sessions), "VOICE": "", "PHRASE_CACHE_DIR": str(sessions / "phrases")}
     return subprocess.Popen([sys.executable, "-u", "-m", "speakrail.harness.server", "--no-phrase-cache"], env=env, stdout=open(sessions / "harness.log", "wb"), stderr=subprocess.STDOUT, start_new_session=True)
 
 

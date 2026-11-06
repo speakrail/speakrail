@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src")]
-from speakrail.config import Config, ENV, load, REPO_ROOT
+from speakrail.config import Config, ENV, load, REPO_ROOT, TUNED
 
 
 def test_defaults_match_the_old_code():
@@ -16,9 +16,9 @@ def test_defaults_match_the_old_code():
     expected = dict(asr_url="ws://127.0.0.1:8765/v1/transcribe", llm_url="http://127.0.0.1:8001/v1/completions", llm_lora="speakrail",
                     llm_base_model="speakrail-base", tts_engine="breeze", tts_url="", tts_model="pocket-tts", breeze_int8="backbone,text_encoder,depth",
                     home=str(Path.home() / ".speakrail"), models_dir="", engines_path="", tokenizer_dir=str(ROOT / "models/speakrail-gemma/tokenizer"), phrase_cache_dir=str(ROOT / "run/phrase_cache"), sessions_dir="",
-                    ui_host="127.0.0.1", ui_port=8080, persona="nova", voice="", home_city="London", home_timezone="Europe/London",
+                    ui_host="127.0.0.1", ui_port=8080, idle_offload_min=-1.0, host_url="", no_color=False, persona="nova", voice="", home_city="London", home_timezone="Europe/London",
                     silence_ms=1000, turn_tau=0.9, turn_k=3, spec=True, peek=True, peek_frames=0, ant4="", ant4_age_s=0.5, ant4_confirm_skip=True,
-                    notes=True, interject=True, tool_hold_ms=600, search="off", searxng_url="http://127.0.0.1:8888/search")
+                    notes=True, interject=True, tool_hold_ms=300, search="off", searxng_url="http://127.0.0.1:8888/search")
     for k, v in expected.items():
         assert getattr(c, k) == v, (k, getattr(c, k), v)
     assert set(expected) == {f for f in c.__dataclass_fields__}, "a setting has no expected default here"
@@ -26,12 +26,22 @@ def test_defaults_match_the_old_code():
 
 
 def test_every_setting_has_an_env_var():
-    assert set(ENV) == set(Config.__dataclass_fields__)
+    assert set(ENV) | TUNED == set(Config.__dataclass_fields__) and not set(ENV) & TUNED
 
 
 def test_environment_variables():
-    c = load({"TURN_K": "1", "TURN_TAU": "0.8", "ANT4": "6:0.7,5:0.9", "UI_PORT": "9000", "SPEAKRAIL_TOKENIZER_DIR": "/x"})
-    assert (c.turn_k, c.turn_tau, c.ant4_triggers, c.ui_port, c.tokenizer_dir) == (1, 0.8, [(6, 0.7), (5, 0.9)], 9000, "/x")
+    c = load({"TURN_TAU": "0.8", "ANT4": "6:0.7,5:0.9", "UI_PORT": "9000", "SPEAKRAIL_TOKENIZER_DIR": "/x"})
+    assert (c.turn_tau, c.ant4_triggers, c.ui_port, c.tokenizer_dir) == (0.8, [(6, 0.7), (5, 0.9)], 9000, "/x")
+
+
+def test_the_tuned_settings_only_come_from_a_config_file():
+    assert load({"TURN_K": "5", "PEEK_FRAMES": "5", "TOOL_HOLD_MS": "5"}) == load({})
+    path = _file({"turn_k": 1, "peek_frames": 8, "tool_hold_ms": 100})
+    try:
+        c = load({"SPEAKRAIL_CONFIG": path, "TURN_K": "5", "PEEK_FRAMES": "5", "TOOL_HOLD_MS": "5"})
+        assert (c.turn_k, c.peek_frames, c.tool_hold_ms) == (1, 8, 100)
+    finally:
+        os.unlink(path)
 
 
 def test_boolean_meanings_are_unchanged():
@@ -56,7 +66,7 @@ def test_file_then_env_precedence():
     try:
         c = load({"SPEAKRAIL_CONFIG": path})
         assert (c.turn_k, c.notes, c.ant4_triggers, c.turn_tau) == (1, False, [(6, 0.7)], 1.0)
-        assert load({"SPEAKRAIL_CONFIG": path, "TURN_K": "5"}).turn_k == 5
+        assert load({"SPEAKRAIL_CONFIG": path, "TURN_TAU": "0.5"}).turn_tau == 0.5
     finally:
         os.unlink(path)
 
@@ -75,7 +85,7 @@ def test_file_mistakes_are_errors():
 
 
 def test_only_config_reads_the_environment():
-    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py"}   # the others hand their environment to child processes
+    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py", "service.py"}   # the others hand their environment to child processes
     found = []
     for p in (ROOT / "src").rglob("*.py"):
         if p.name not in allowed and re.search(r"os\.environ|os\.getenv|getenv\(", p.read_text()):

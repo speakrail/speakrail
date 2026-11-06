@@ -1,7 +1,8 @@
 """`speakrail run`: from "what is this machine" to a running assistant.
 
 Detect, resolve, start the engines, benchmark them if this machine hasn't been measured, render the phrase cache if it's
-missing, then start the harness. Any engine or the harness dying stops everything, and the exit code says so.
+missing, then start the harness. From there the stack in host.py owns the engines, which can unload and load again while this
+process and the harness stay up. If the harness dies everything stops, and the exit code says so.
 """
 from __future__ import annotations
 
@@ -17,9 +18,11 @@ import time
 from pathlib import Path
 
 from . import benchmark as bench
+from . import service, ui
 from .config import CFG, REPO_ROOT
-from .hardware import detect
-from .manifest import discover
+from .hardware import detect, idle_minutes
+from .host import READY, Refused, Stack, serve_control
+from .manifest import discover, values_for
 from .resolver import ResolveError, discover_configs, explain, resolve, to_file
 from .supervisor import EngineError, Supervisor, check_health, port_free
 
@@ -54,8 +57,17 @@ def stored_benchmark(resolved):
     return bench.load(home / "config" / "benchmark.json", bench.fingerprint(resolved.hardware, resolved.config))
 
 
-def say(msg):
-    print(msg, flush=True)
+say = ui.say
+
+
+def missing_voice(resolved) -> str:
+    """why the chosen voice can't speak, or "". An engine answers a voice name it has no file for with silence and no error, so this is checked first."""
+    voice, tts = resolved.harness.get("voice", ""), resolved.engines["tts"]
+    if not voice or voice.endswith(".wav") or "voices_dir" not in tts.params:
+        return ""
+    home, models = paths()
+    f = Path(values_for(tts, home, models, home / "run" / tts.slug, resolved.params.get(tts.id))["voices_dir"]) / f"{voice}.safetensors"
+    return "" if f.exists() else f"Voice {voice!r} isn't installed: there's no {f}. Pick another one with --set voice=..."
 
 
 def render_phrase_cache(harness_values, env, url):
@@ -70,7 +82,20 @@ def render_phrase_cache(harness_values, env, url):
         say(f"Phrase cache ready in {time.monotonic() - t0:.0f} s: {last[:120]}")
 
 
+def api_token(home: Path) -> str:
+    f = home / "config" / "api_token"
+    if not f.exists():
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.touch(mode=0o600)
+        f.write_text(secrets.token_urlsafe(32) + "\n")
+    return f.read_text().strip()
+
+
 def main(args) -> int:
+    running = service.find()
+    if running:
+        say(f"Already running (pid {running['pid']}): {running['url']}\nspeakrail stop stops it.")
+        return 2
     try:
         resolved, _, _ = setup(args)
         stored = stored_benchmark(resolved)
@@ -81,27 +106,35 @@ def main(args) -> int:
         return 2
     home, _ = paths()
     say(explain(resolved))
+    if (problem := missing_voice(resolved)):
+        say(problem)
+        return 2
     if not port_free(CFG.ui_port):
         say(f"Port {CFG.ui_port} is already in use. Pick another with UI_PORT, or stop what's using it.")
         return 2
-    failed = threading.Event()
     stop = threading.Event()
-    reason = []
+    stack = None
 
     def on_event(engine, state, detail):
         say(f"[{engine}] {state}{': ' + detail if detail else ''}")
-        if state == "failed":
-            reason.append(f"{engine}: {detail}")
-            failed.set()
+        if stack:
+            stack.on_engine_event(engine, state, detail)
 
     sup = Supervisor(on_event=on_event)
-    harness = None
+    engines = list(resolved.engines.values())
+    stack = Stack(sup, engines, {e.id: resolved.params.get(e.id, {}) for e in engines}, resolved.config.memory_peak_gib, idle_minutes(resolved.hardware) * 60, say=say)
+    harness = control = None
+    url = f"http://{CFG.ui_host}:{CFG.ui_port}/"
+    token = api_token(home)
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
     try:
-        engines = list(resolved.engines.values())
-        sup.start_all(engines, params={e.id: resolved.params.get(e.id, {}) for e in engines})
+        control = serve_control(stack, token, stop.set)
+        service.write_host_file(control.server_address[1], url)
+        stack.load(force=getattr(args, "force", False))
         urls = {role: sup.url(e.id) for role, e in resolved.engines.items()}
+        if stop.is_set():
+            return 0
         if not stored and not args.no_bench:
             say("Measuring this machine, under a minute...")
             try:
@@ -119,11 +152,7 @@ def main(args) -> int:
                 say(f"Benchmark failed, keeping the config's settings: {type(e).__name__}: {e}")
         conf = home / "config" / "resolved.json"
         to_file(resolved, urls, conf)
-        token_file = home / "config" / "api_token"
-        if not token_file.exists():
-            token_file.touch(mode=0o600)
-            token_file.write_text(secrets.token_urlsafe(32) + "\n")
-        env = {**os.environ, "SPEAKRAIL_CONFIG": str(conf), "SPEAKRAIL_API_TOKEN": token_file.read_text().strip(),
+        env = {**os.environ, "SPEAKRAIL_CONFIG": str(conf), "SPEAKRAIL_API_TOKEN": token, "SPEAKRAIL_HOST_URL": f"http://127.0.0.1:{control.server_address[1]}",
                "PYTHONPATH": os.pathsep.join(filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH", "")]))}
         if resolved.config.phrase_cache and resolved.harness.get("phrase_cache_dir") and not _phrases_ready(env, resolved):
             say("Rendering the phrase cache, once per voice...")
@@ -133,7 +162,6 @@ def main(args) -> int:
         cmd = [sys.executable, "-u", "-m", "speakrail.harness.server"] + ([] if resolved.config.phrase_cache else ["--no-phrase-cache"])
         with open(log_dir / "harness.log", "ab", buffering=0) as log:
             harness = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-        url = f"http://{CFG.ui_host}:{CFG.ui_port}/"
         t0 = time.monotonic()
         while not check_health(url):
             if harness.poll() is not None:
@@ -145,21 +173,23 @@ def main(args) -> int:
                 say("The harness didn't come up in 120 s")
                 return 1
             time.sleep(0.2)
-        say(f"\nSpeakrail is ready: {url}\nAPI (GPT-Live over WebSocket): ws://{CFG.ui_host}:{CFG.ui_port}/v1/live/sessions, with the token in {token_file}\nCtrl-C stops everything.")
-        while not stop.is_set() and not failed.is_set():
-            if harness.poll() is not None:
-                reason.append(f"the harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")
-                failed.set()
-                break
-            stop.wait(0.5)
-        if failed.is_set():
-            say(f"Stopping: {'; '.join(reason)}")
+        if stack.state != READY:
+            say(f"Stopping: {stack.error}")
             return 1
+        say(f"\n{service.READY_LINE}: {url}\nAPI (GPT-Live over WebSocket): ws://{CFG.ui_host}:{CFG.ui_port}/v1/live/sessions, with the token in {home / 'config' / 'api_token'}\nStop it with: speakrail stop")
+        stack.set_sessions(0)                    # the idle clock starts now
+        stack.start_monitor()
+        while not stop.is_set():
+            if harness.poll() is not None:
+                say(f"Stopping: the harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")
+                return 1
+            stop.wait(0.5)
         return 0
-    except EngineError as e:
-        say(str(e))
-        return 1
+    except Refused as e:
+        say(e.message)
+        return 2 if e.code == "not_enough_memory" else 1
     finally:
+        service.remove_host_file()
         if harness and harness.poll() is None:
             try:
                 os.killpg(harness.pid, signal.SIGTERM)
@@ -169,7 +199,10 @@ def main(args) -> int:
                     os.killpg(harness.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+        stack.close()
         sup.close()
+        if control:
+            control.shutdown()
         say("Stopped.")
 
 

@@ -90,7 +90,6 @@ Everything is in `.env` (see [.env.example](.env.example)):
 | `HOME_CITY` / `HOME_TIMEZONE` | London | "home" for the weather and time tools |
 | `SILENCE_MS` | `1000` | silence that ends your turn when the head is unsure |
 | `NOTES` | `1` | listening notes (better answers to long requests) |
-| `TOOL_HOLD_MS` | `300` | tools run only after you've been quiet this long |
 | `SEARCH` | `off` | `searxng` (local, start with `docker compose --profile search up -d`), `serper` or `brave` (API key) |
 | `FIREWORKS_API_KEY` | empty | enables asking a larger model for hard questions (paid) |
 | `SESSIONS_DIR` | off | save every session (log, context, audio) for debugging |

@@ -1,3 +1,4 @@
 name = "apple"
 memory_kind = "unified"
 reserve_gib = 4.0      # macOS and whatever else is open share this memory
+idle_offload_min = 10  # also someone's everyday computer: give the memory back when nobody is talking

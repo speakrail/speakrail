@@ -1,12 +1,14 @@
+@font-face{font-family:Kripa;font-style:normal;font-weight:100 900;font-display:swap;src:url(fonts/kripa-latin.woff2) format("woff2")}
+@font-face{font-family:Lilex;font-style:normal;font-weight:100 700;font-display:swap;src:url(fonts/lilex-latin.woff2) format("woff2")}
 :root{
-  /* the voice UI's palette: the assistant = pink, the user = sage */
-  --bg:#151515; --panel:#1c1c1c; --line:#2a2a2a; --fg:#fafafa; --dim:#9a9a9a;
-  --accent:#f4b6c9; --speak:#f4b6c9; --listen:#a3d9b8; --hold:#6b6b6b;
-  --kill:#f0a3a3; --warn:#ecd59f;
+  /* the voice UI's palette, from speakrail.com: the assistant = pink, the user = green */
+  --bg:#161414; --panel:#1f1c1d; --line:#373133; --fg:#fcf5f7; --dim:#959091;
+  --accent:#f59eb9; --speak:#f59eb9; --listen:#7fc88e; --hold:#736c6e;
+  --kill:#faa18f; --warn:#e3af65;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
-  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  font:350 14px/1.5 "Kripa",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 header{padding:16px 20px;border-bottom:1px solid var(--line);
   display:flex;align-items:center;gap:20px;flex-wrap:wrap}
 h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
@@ -17,7 +19,7 @@ button{background:var(--panel);color:var(--fg);border:1px solid var(--line);
   border-radius:7px;padding:7px 13px;font-size:13px;cursor:pointer}
 button:hover:not(:disabled){border-color:var(--accent)}
 button:disabled{opacity:.4;cursor:default}
-button.primary{background:var(--accent);color:#151515;border-color:transparent;font-weight:600}
+button.primary{background:var(--accent);color:#161414;border-color:transparent;font-weight:600}
 .pill{padding:3px 10px;border-radius:99px;font-size:12px;background:var(--panel);border:1px solid var(--line)}
 .pill.idle{color:var(--dim)}
 .pill.listening{color:var(--listen);border-color:var(--listen)}
@@ -29,17 +31,17 @@ main{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 20px 40px}
 #convo{min-height:150px;max-height:330px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
 .msg{padding:7px 11px;border-radius:9px;max-width:88%;white-space:pre-wrap;word-break:break-word}
 .msg.user{background:#1d2621;align-self:flex-start}
-.msg.bot{background:#2a1e23;align-self:flex-end}
+.msg.bot{background:#321d23;align-self:flex-end}
 .msg.cut{opacity:.55}
 .msg .strike{text-decoration:line-through;color:var(--dim)}
 .msg .tag{display:block;font-size:11px;color:var(--dim);margin-top:3px}
 .msg .tag.search{color:var(--accent)}
 .meters{display:flex;gap:16px;margin-bottom:10px}
 .meter{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--dim);flex:1}
-.bar{flex:1;height:6px;background:#101010;border-radius:3px;overflow:hidden}
+.bar{flex:1;height:6px;background:#100f0f;border-radius:3px;overflow:hidden}
 .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s linear}
 #grid{display:flex;flex-wrap:wrap;gap:2px;align-content:flex-start;min-height:110px}
-table{width:100%;border-collapse:collapse;font:11.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+table{width:100%;border-collapse:collapse;font:11.5px/1.45 "Lilex",ui-monospace,SFMono-Regular,Menlo,monospace}
 th{text-align:left;color:var(--dim);font-weight:600;padding:4px 7px;border-bottom:1px solid var(--line);
   position:sticky;top:0;background:var(--panel)}
 td{padding:3px 7px;border-bottom:1px solid var(--line);white-space:nowrap;
@@ -50,8 +52,8 @@ td.rolled{color:var(--kill)}
 td.slow{color:var(--warn)}
 
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-.stat{background:#101010;border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:120px}
-.stat b{display:block;font:600 17px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
+.stat{background:#100f0f;border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:120px}
+.stat b{display:block;font:600 17px/1.2 "Lilex",ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)}
 .stat label{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
 #turns tbody{max-height:170px}
 th.hi,td.hi{color:var(--speak);font-weight:600}
@@ -64,4 +66,4 @@ tr.cut td { color: var(--kill); }
 tr.cutrow td { opacity: .6; }
 .msg.cut { text-decoration: line-through; opacity: .7; }
 .controls label { font-size: 12px; margin-left: 8px; }
-.controls select { background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; padding: 2px 4px; }
+.controls select { background: #252122; color: #e9e3e4; border: 1px solid #474243; border-radius: 4px; padding: 2px 4px; }

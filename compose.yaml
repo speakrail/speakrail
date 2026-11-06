@@ -121,7 +121,6 @@ services:
       SILENCE_MS: ${SILENCE_MS:-1000}
       NOTES: ${NOTES:-1}
       INTERJECT: ${INTERJECT:-1}
-      TOOL_HOLD_MS: ${TOOL_HOLD_MS:-300}
       SEARCH: ${SEARCH:-off}
       SERPER_API_KEY: ${SERPER_API_KEY:-}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}

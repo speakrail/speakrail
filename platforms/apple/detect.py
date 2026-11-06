@@ -16,8 +16,26 @@ def parse_vm_stat(text):
     return sum(pages.get(k, 0) for k in ("free", "inactive", "speculative", "purgeable")) * size
 
 
+def parse_pressure(level):
+    """kern.memorystatus_vm_pressure_level: what macOS itself thinks, which free pages alone can't say (it can compress other apps)"""
+    return {"2": "warn", "4": "critical"}.get(level.strip(), "normal")
+
+
+def parse_top(text):
+    """`top -stats pid,mem` -> pid: GiB"""
+    units = {"B": 1 / 2**30, "K": 1 / 2**20, "M": 1 / 2**10, "G": 1, "T": 1024}
+    found = (re.match(r"\s*(\d+)\*?\s+([\d.]+)([BKMGT])\+?-?\s*$", line) for line in text.splitlines())
+    return {int(m[1]): float(m[2]) * units[m[3]] for m in found if m}
+
+
+def memory_by_pid():
+    """the memory footprint: unlike RSS it includes Metal allocations, which is most of what the engines hold"""
+    return parse_top(subprocess.run(["top", "-l", "1", "-stats", "pid,mem"], capture_output=True, text=True, timeout=20).stdout)
+
+
 def detect():
     if sys.platform != "darwin" or platform.machine() != "arm64":
         return None
     vm = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
-    return {"name": _sysctl("machdep.cpu.brand_string") or "Apple Silicon", "memory_gib": int(_sysctl("hw.memsize")) / 2**30, "free_memory_gib": parse_vm_stat(vm) / 2**30}
+    return {"name": _sysctl("machdep.cpu.brand_string") or "Apple Silicon", "memory_gib": int(_sysctl("hw.memsize")) / 2**30, "free_memory_gib": parse_vm_stat(vm) / 2**30,
+            "memory_pressure": parse_pressure(_sysctl("kern.memorystatus_vm_pressure_level"))}

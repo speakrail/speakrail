@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import subprocess
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,8 @@ class Hardware:
     reserve_gib: float
     disk_free_gib: float = 0.0
     wsl: bool = False
+    memory_pressure: str = "normal"      # normal, warn or critical; only platforms that have such a signal report anything else
+    idle_offload_min: float = 0.0
 
     def describe(self) -> str:
         wsl = ", under WSL2" if self.wsl else ""
@@ -48,5 +51,29 @@ def detect(paths=None) -> Hardware | None:
             probe = next((p for p in (home, *home.parents) if p.exists()), Path("/"))
             return Hardware(platform=info["name"], name=found["name"], memory_gib=found["memory_gib"], free_memory_gib=found["free_memory_gib"],
                             memory_kind=info["memory_kind"], reserve_gib=float(info["reserve_gib"]), disk_free_gib=shutil.disk_usage(probe).free / 2**30,
-                            wsl=bool(found.get("wsl")))
+                            wsl=bool(found.get("wsl")), memory_pressure=found.get("memory_pressure", "normal"), idle_offload_min=float(info.get("idle_offload_min", 0)))
     return None
+
+
+def idle_minutes(hw: Hardware) -> float:
+    return CFG.idle_offload_min if CFG.idle_offload_min >= 0 else hw.idle_offload_min
+
+
+def _rss_by_pid() -> dict[int, float]:
+    out = subprocess.run(["ps", "-axo", "pid=,rss="], capture_output=True, text=True, timeout=10).stdout
+    return {int(a): int(b) / 2**20 for a, b in (line.split() for line in out.splitlines())}
+
+
+def engine_memory(groups: dict[str, list[int]], platform: str, paths=None) -> dict[str, float]:
+    """name -> GiB held by these process groups. A platform's detect.py can offer memory_by_pid() where RSS misses memory that counts."""
+    measure = _rss_by_pid
+    for folder in platform_dirs(paths):
+        if tomllib.loads((folder / "platform.toml").read_text())["name"] == platform:
+            measure = getattr(_load_detect(folder), "memory_by_pid", _rss_by_pid)
+    by_pid = measure()
+    out = subprocess.run(["ps", "-axo", "pid=,pgid="], capture_output=True, text=True, timeout=10).stdout
+    members: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        pid, pgid = line.split()
+        members.setdefault(int(pgid), []).append(int(pid))
+    return {name: sum(by_pid.get(p, 0.0) for leader in leaders for p in members.get(leader, [leader])) for name, leaders in groups.items()}

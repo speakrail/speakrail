@@ -6,3 +6,5 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 Speakrail downloads and runs the third-party models and software.
 They are not part of this repository's source and keep their own licenses.
 Using Speakrail means accepting those licenses as well.
+
+The web UI ships the Kripa and Lilex fonts, under the SIL Open Font License 1.1 (src/speakrail/harness/web/fonts/OFL.txt).

@@ -10,6 +10,9 @@ Extensions, opt in with session.speakrail = {...}:
   playback_ack: true    the client says when audio really starts playing, with {"type":"speakrail.played","utt":N,"delay_ms":M}
   events: true          harness events as speakrail.<type>; output audio then carries its `utt`
 
+The engines may have been unloaded while nobody was connected. session.start then loads them, with an info event (code "loading")
+in the meantime, and session.started once they're up. Send no audio before session.started.
+
 Turn-taking is the model's own, so there are no turn-detection settings, and output audio keeps flowing as the session decides. The server
 sends audio close to real time, so when a reply is cut, there is little left at the client to play.
 """
@@ -32,13 +35,27 @@ CLIENT_TOOL_TIMEOUT_S = 60.0
 USAGE_EVERY_S = 5.0
 MAX_CONTEXT_TOKENS = 16384
 SESSION_SECONDS = 4 * 3600
-ACTIVE: list = []                                      # one session at a time, as the engines allow
+ACTIVE: list = []                                      # one session at a time, across the API and the web page: they share one set of engines
+RELEASE_WAIT_S = 2.0                                   # Stop then Start: the old session may still be closing
+BUSY_MESSAGE = "Another session is active, and this server runs one at a time. End it first."
+REFUSALS = ("engines_offloaded", "engines_failed", "not_enough_memory", "host_unavailable")    # the engines won't come up for this session
 
 
 class Rejected(Exception):
     def __init__(self, code: str, message: str, param: str | None = None):
         super().__init__(message)
         self.code, self.message, self.param = code, message, param
+
+
+async def claim(owner) -> bool:
+    """the one session's place -> whether this got it"""
+    deadline = time.monotonic() + RELEASE_WAIT_S
+    while ACTIVE:
+        if time.monotonic() > deadline:
+            return False
+        await asyncio.sleep(0.05)
+    ACTIVE.append(owner)
+    return True
 
 
 def origin_allowed(request) -> bool:
@@ -85,8 +102,9 @@ def parse_format(session: dict) -> int:
 
 
 class LiveSession:
-    def __init__(self, ws, make_session: Callable):
-        self.ws, self.make_session = ws, make_session
+    def __init__(self, ws, make_session: Callable, gate=None):
+        self.ws, self.make_session, self.gate = ws, make_session, gate
+        self.entered = False
         self.sess = None
         self.out: asyncio.Queue = asyncio.Queue()
         self.started_at = time.monotonic()
@@ -234,11 +252,13 @@ class LiveSession:
         if unknown := set(self.ext) - {"default_tools", "playback_ack", "events"}:
             raise Rejected("unknown_parameter", f"unknown speakrail options: {sorted(unknown)}", "session.speakrail")
         instructions = "\n".join(x for x in (str(s.get("instructions") or ""), extra) if x)
-        if len(ACTIVE) >= 1:
-            raise Rejected("session_busy", "another session is active; this server runs one at a time")
+        if not await claim(self):
+            raise Rejected("session_busy", BUSY_MESSAGE)
+        if self.gate:
+            await self.gate.enter(self.ws, lambda text: self.emit("info", code="loading", message=text))
+            self.entered = True
         self.down = Downsampler() if self.rate == 24000 else None
         self.pacer = Pacer(self.send_audio, self.rate, on_first=self.first_audio)
-        ACTIVE.append(self)
         self.sess = self.make_session(self.on_harness, tools=tools, default_tools=bool(self.ext.get("default_tools")), instructions=instructions, run_client_tool=self.run_client_tool)
         await self.sess.start()
         self.resource = {"id": self.id, "expires_at": int(time.time()) + SESSION_SECONDS, "model": s["model"], "status": "active",
@@ -297,7 +317,7 @@ class LiveSession:
                 raise Rejected("unknown_event", f"unknown event type {kind!r}", "type")
         except Rejected as e:
             self.error(e.code, e.message, eid, e.param)
-            if e.code == "session_busy":
+            if e.code in ("session_busy", *REFUSALS):
                 return False
         return True
 
@@ -349,6 +369,8 @@ class LiveSession:
                 await self.sess.close()
             if self in ACTIVE:
                 ACTIVE.remove(self)
+            if self.entered:
+                await self.gate.leave(self.ws)
             if self.resource:
                 self.emit("session.closed", reason=reason, session=self.resource, usage={"seconds": time.monotonic() - self.started_at})
             self.out.put_nowait(None)
@@ -358,7 +380,7 @@ class LiveSession:
                 pass
 
 
-def handler(make_session: Callable) -> Callable[..., Awaitable]:
+def handler(make_session: Callable, gate=None) -> Callable[..., Awaitable]:
     async def live(request):
         if not origin_allowed(request):
             raise web.HTTPForbidden(text="this origin may not use the API")
@@ -366,7 +388,7 @@ def handler(make_session: Callable) -> Callable[..., Awaitable]:
             raise web.HTTPUnauthorized(text="a valid Authorization: Bearer token is required")
         ws = web.WebSocketResponse(max_msg_size=0, heartbeat=20)
         await ws.prepare(request)
-        await LiveSession(ws, make_session).serve()
+        await LiveSession(ws, make_session, gate).serve()
         if not ws.closed:
             await ws.close()
         return ws

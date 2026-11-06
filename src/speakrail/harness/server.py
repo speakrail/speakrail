@@ -3,7 +3,9 @@
 
     /                the voice UI (web/live)
     /debug/          the measurement UI (web): head meters, decisions, per-turn latencies
-    /ws, /debug/ws   one voice session per websocket
+    /v1/live/sessions  the public API (gateway/live.py)
+    /v1/control/*    status, load and offload of the engines, forwarded to the host (gateway/control.py)
+    /ws, /debug/ws   a voice session per websocket; one session at a time, counting the API's
                      binary in  = int16 mono 16 kHz mic audio
                      binary out = 2-byte utterance id, 2 pad bytes, int16 24 kHz PCM
                      JSON in:  {cmd: play_start, utt, delay_ms} | {cmd: interrupt} | {cmd: reconnect_asr} | {cmd: stop}
@@ -20,11 +22,13 @@ import time
 from aiohttp import web, WSMsgType
 
 from ..config import CFG, secret
-from ..gateway.live import handler as live_handler, origin_allowed
+from ..gateway.control import Gate, add_routes as add_control_routes
+from ..gateway.live import ACTIVE, BUSY_MESSAGE, Rejected, claim, handler as live_handler, origin_allowed
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HUB = None
 ARGS = None
+GATE = None                                               # the host's engines; None under --stub, which has no host
 
 
 def page(path):
@@ -55,7 +59,7 @@ def micro_cfg(q, cfg):
     # end-of-turn rule: P(fire) >= TURN_TAU on TURN_K frames in a row (0.9 x 3; the all_ant80 head was benchmarked with K=1)
     return MicroCfg(url=ARGS.mt_url, lora=CFG.llm_lora,
                     tau=CFG.turn_tau, k=CFG.turn_k,
-                    think_model=CFG.llm_base_model, undo_words=ARGS.undo_words, tool_hold_ms=ARGS.tool_hold_ms,
+                    think_model=CFG.llm_base_model, undo_words=ARGS.undo_words, tool_hold_ms=CFG.tool_hold_ms,
                     persona=ARGS.persona,
                     allow_interject=not ARGS.no_interject, silence_fallback_ms=cfg.silence_ms,
                     notes=ARGS.notes, phrase_cache=not ARGS.no_phrase_cache, safety_yield_s=ARGS.safety_yield_s,
@@ -75,6 +79,41 @@ def make_live_session(send, tools=(), default_tools=False, instructions="", run_
                    client_tools=list(tools), client_tool_runner=run_client_tool, instructions=instructions)
     log_dir = os.path.join(ARGS.sessions_dir, f"session-{time.strftime('%Y%m%d-%H%M%S')}") if ARGS.sessions_dir else None
     return MicroSession(cfg, HUB, send, log_dir=log_dir, mcfg=mcfg)
+
+
+async def warm_tts():
+    """engines that just came back have lost the prepared voice; the first reply shouldn't be what pays for it"""
+    from .tts import Segment
+    seg = Segment(-1, 0, "Hello there, warming up.")
+    HUB.worker.say(seg)
+    t0 = time.monotonic()
+    while not seg.done and time.monotonic() - t0 < 30:
+        await asyncio.sleep(0.02)
+
+
+async def wake(ws, send) -> bool:
+    """get the engines up for this session -> whether it can go on. The browser sends the microphone as soon as the socket opens, and
+    what it says while the engines load is dropped here: fed in afterwards, it would reach the recognizer many seconds late."""
+    def say_loading(text):
+        send({"type": "info", "code": "loading", "message": text})
+
+    enter = asyncio.create_task(GATE.enter(ws, say_loading))
+    while not enter.done():
+        try:
+            msg = await ws.receive(timeout=0.2)
+        except asyncio.TimeoutError:
+            continue
+        ended = msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED, WSMsgType.ERROR)
+        if ended or (msg.type == WSMsgType.TEXT and '"stop"' in msg.data):
+            enter.cancel()
+            await GATE.leave(ws)
+            return False
+    try:
+        enter.result()
+        return True
+    except Rejected as e:
+        send({"type": "error", "where": "engines", "code": e.code, "detail": e.message})
+        return False
 
 
 async def ws_handler(request):
@@ -102,6 +141,24 @@ async def ws_handler(request):
             pass
 
     wtask = asyncio.create_task(writer())
+    if not await claim(ws):
+        send({"type": "error", "where": "session", "code": "session_busy", "detail": BUSY_MESSAGE})
+        send(None)
+        await wtask
+        await ws.close()
+        return ws
+    try:
+        return await serve_ws(ws, q, send, wtask)
+    finally:
+        ACTIVE.remove(ws)
+
+
+async def serve_ws(ws, q, send, wtask):
+    if GATE and not await wake(ws, send):
+        send(None)
+        await wtask
+        await ws.close()
+        return ws
     stamp = time.strftime("%Y%m%d-%H%M%S")
     if ARGS.stub:
         from types import SimpleNamespace
@@ -119,6 +176,8 @@ async def ws_handler(request):
         send(None)
         await wtask
         await ws.close()
+        if GATE:
+            await GATE.leave(ws)
         return ws
     print(f"[ws] session {stamp} started{' (stub)' if ARGS.stub else ''}", flush=True)
     try:
@@ -150,6 +209,8 @@ async def ws_handler(request):
         print(f"[ws] session {stamp} closed: {summ['turns']} turns, word_end_to_ear p50 {summ['word_end_to_ear']['p50']} ms", flush=True)
         if not ws.closed:
             await ws.close()
+        if GATE:
+            await GATE.leave(ws)
     return ws
 
 
@@ -163,7 +224,7 @@ async def on_startup(app):
 
 
 def main():
-    global ARGS
+    global ARGS, GATE
     ap = argparse.ArgumentParser()
     ap.add_argument("--stub", action="store_true", help="no models: fake ASR / turn head / LLM / TTS, to try the UI")
     ap.add_argument("--port", type=int, default=CFG.ui_port)
@@ -191,7 +252,6 @@ def main():
                     help="never offer <interject> (short remarks while the user keeps talking)")
     ap.add_argument("--no-phrase-cache", action="store_true", help="never play a first clause from pre-rendered clips")
     # tools
-    ap.add_argument("--tool-hold-ms", type=int, default=CFG.tool_hold_ms, help="run tool calls only after this much quiet (0 = off)")
     ap.add_argument("--search", default=CFG.search, choices=["searxng", "serper", "brave", "off"],
                     help="web search backend for the web_search tool (off by default)")
     ap.add_argument("--frontier", action="store_true", default=bool(secret("FIREWORKS_API_KEY")),
@@ -204,12 +264,20 @@ def main():
     ARGS = ap.parse_args()
     if not ARGS.stub and not ARGS.voice and ARGS.tts_engine == "breeze":
         ap.error("--voice (or VOICE) is required for Breeze unless --stub")
+    if CFG.host_url and not ARGS.stub:
+        GATE = Gate(CFG.host_url, secret("SPEAKRAIL_API_TOKEN"), warm=warm_tts)
     app = web.Application()
     app.on_startup.append(on_startup)
-    app.router.add_get("/v1/live/sessions", live_handler(make_live_session))
+    if GATE:
+        app.on_cleanup.append(lambda _: GATE.close())
+    app.router.add_get("/v1/live/sessions", live_handler(make_live_session, GATE))
+    add_control_routes(app, GATE, "")
+    add_control_routes(app, GATE, "/live")                # for reverse proxies that mount the UI there
     app.router.add_get("/", page("live/index.html"))
     app.router.add_get("/ws", ws_handler)
     app.router.add_static("/static", os.path.join(HERE, "web", "live"))
+    app.router.add_static("/fonts", os.path.join(HERE, "web", "fonts"))
+    app.router.add_static("/live/fonts", os.path.join(HERE, "web", "fonts"))
     # the same UI under /live/, for reverse proxies that mount it there
     app.router.add_get("/live/", page("live/index.html"))
     app.router.add_get("/live/ws", ws_handler)

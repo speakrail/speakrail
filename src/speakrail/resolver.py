@@ -10,9 +10,9 @@ import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-from .config import Config, REPO_ROOT
+from .config import Config, REPO_ROOT, TUNED
 from .contracts import REQUIRED
-from .hardware import Hardware
+from .hardware import Hardware, idle_minutes
 from .manifest import Engine, render
 
 # measured on an M4 Pro, where everything is on: 31 ms per frame, peeks of about 280 ms, about 44 tok/s
@@ -129,6 +129,8 @@ def parse_set(items) -> dict:
         if "=" not in item:
             raise ConfigError(f"--set wants key=value, got {item!r}")
         key, text = item.split("=", 1)
+        if key in TUNED:
+            raise ConfigError(f"{key} is tuned together with the turn head and can't be changed here. It belongs to a config.")
         if key not in HARNESS_FIELDS:
             raise ConfigError(f"unknown setting {key!r}")
         kind = HARNESS_FIELDS[key]
@@ -262,7 +264,7 @@ def resolve(configs: dict, engines: dict, hw: Hardware, *, pinned=None, sets=Non
             h[key] = render(val, subs, f"{c.name} harness {key}")
     if c.platform != "any":
         h.setdefault("phrase_cache_dir", str(Path(home) / "phrase_cache"))
-    if (voice := h.get("voice")) and "/" not in voice:
+    if (voice := h.get("voice")) and "/" not in voice and voice.endswith(".wav"):
         h["voice"] = str(Path(__file__).resolve().parent / "harness" / "voices" / voice)
     return r
 
@@ -280,6 +282,8 @@ def explain(r: Resolved) -> str:
     fit = c.memory_peak_gib + hw.reserve_gib
     out.append(f"Memory    {c.memory_peak_gib:.1f} GB peak + {hw.reserve_gib:.1f} GB kept free = {fit:.1f} of {hw.memory_gib:.0f} GB")
     out.append("Engines   " + ", ".join(f"{e.id}" for e in r.engines.values()))
+    idle = idle_minutes(hw)
+    out.append(f"Idle      {f'engines unload after {idle:g} min with no session, the next session loads them again' if idle else 'engines stay loaded'}")
     if r.benchmark:
         b = r.benchmark
         out.append(f"Benchmark ASR {b.get('asr_frame_ms', 0):.0f} ms per frame, peek {b.get('asr_peek_ms', 0):.0f} ms, LLM {b.get('llm_decode_tok_s', 0):.0f} tok/s, decision {b.get('llm_decision_ms', 0):.0f} ms, first audio {b.get('tts_ttfa_ms', 0):.0f} ms")

@@ -1,3 +1,4 @@
 name = "cuda"
 memory_kind = "dedicated"
 reserve_gib = 1.0      # a display can hold about this much
+idle_offload_min = 0   # usually a box dedicated to this: stay loaded
