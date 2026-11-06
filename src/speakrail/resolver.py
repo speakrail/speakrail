@@ -49,6 +49,7 @@ class SetupConfig:
     phrase_cache: bool
     evidence: dict
     path: Path | None = None
+    downloads: tuple = ()
 
 
 @dataclass
@@ -78,7 +79,7 @@ def load_config(path: Path) -> SetupConfig:
         raw = tomllib.loads(Path(path).read_text())
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{where}: {e}") from e
-    known = {"name", "status", "description", "platform", "priority", "memory_peak_gib", "disk_gib", "engines", "harness", "params", "run", "evidence"}
+    known = {"name", "status", "description", "platform", "priority", "memory_peak_gib", "disk_gib", "engines", "harness", "params", "run", "evidence", "download"}
     if extra := set(raw) - known:
         raise ConfigError(f"{where}: unknown keys {sorted(extra)}")
     for key in ("name", "status", "platform", "memory_peak_gib", "engines"):
@@ -90,6 +91,11 @@ def load_config(path: Path) -> SetupConfig:
         raise ConfigError(f"{where}: a tested config needs [evidence] saying what it was tested on")
     if missing := {"asr", "tts", "llm"} - set(raw["engines"]):
         raise ConfigError(f"{where}: [engines] is missing {sorted(missing)}")
+    for d in raw.get("download", []):
+        if missing := {"repo", "revision", "include", "to"} - set(d):
+            raise ConfigError(f"{where}: a [[download]] is missing {sorted(missing)}")
+        if extra := set(d) - {"repo", "revision", "from", "include", "to"}:
+            raise ConfigError(f"{where}: a [[download]] has unknown keys {sorted(extra)}")
     harness = raw.get("harness", {})
     for key, value in harness.items():
         if key not in HARNESS_FIELDS:
@@ -100,7 +106,7 @@ def load_config(path: Path) -> SetupConfig:
     return SetupConfig(name=raw["name"], status=raw["status"], description=raw.get("description", ""), platform=raw["platform"], priority=int(raw.get("priority", 0)),
                        memory_peak_gib=float(raw["memory_peak_gib"]), disk_gib=float(raw.get("disk_gib", 0)), engines=dict(raw["engines"]), harness=dict(harness),
                        params={k: dict(v) for k, v in raw.get("params", {}).items()}, phrase_cache=bool(raw.get("run", {}).get("phrase_cache", True)),
-                       evidence=dict(raw.get("evidence", {})), path=Path(path))
+                       evidence=dict(raw.get("evidence", {})), path=Path(path), downloads=tuple(raw.get("download", [])))
 
 
 def _check_type(key, value, where):
@@ -269,7 +275,7 @@ def resolve(configs: dict, engines: dict, hw: Hardware, *, pinned=None, sets=Non
     return r
 
 
-FEATURES = (("spec", "speculation"), ("peek", "peek"), ("peek_frames", "peek frames"), ("ant4", "ANT4 early trigger"), ("notes", "listening notes"), ("interject", "interjections"), ("turn_k", "turn rule K"), ("tool_hold_ms", "tool hold, ms"))
+FEATURES = (("spec", "speculation"), ("peek", "peek"), ("ant4", "ANT4 early trigger"), ("notes", "listening notes"), ("interject", "interjections"))
 
 
 def explain(r: Resolved) -> str:

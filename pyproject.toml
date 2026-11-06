@@ -19,6 +19,12 @@ dependencies = [
     "jinja2>=3.1,<4",
 ]
 
+[project.optional-dependencies]
+install = [                      # only what the installer itself uses
+    "cmake>=4,<5",
+    "ninja>=1.11,<2",
+]
+
 [tool.hatch.version]
 path = "src/speakrail/__init__.py"
 

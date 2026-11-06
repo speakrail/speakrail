@@ -1,0 +1,336 @@
+"""`speakrail install`: what install.sh hands over to once it has Python. Asks what to do, then builds audio.cpp, fetches the models and adds the command.
+
+Running it again carries on: finished steps are skipped and a partial download resumes. Everything goes in the home folder, except one
+line in the shell's startup file, which the wizard asks about.
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import hashlib
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import tomllib
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
+import requests
+
+from .config import CFG, REPO_ROOT
+from .hardware import detect, platform_module
+from .ui import say
+
+LICENSES = """Licenses
+  Speakrail's code is Apache 2.0. The models keep their own licenses; NOTICE has the details.
+  Voxtral and Gemma: Apache 2.0. Pocket TTS: CC-BY-4.0, by Kyutai.
+  Pocket's terms prohibit illegal, harmful or deceptive use, including cloning a voice without explicit and lawful consent."""
+RC_MARK = "# added by the Speakrail installer"
+HUB = "https://huggingface.co"
+CHUNK = 64 << 20
+STREAMS = 8
+RETRIES = 5
+
+
+class InstallError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------------- the wizard
+def tty_ask(prompt: str) -> str:
+    with open("/dev/tty") as tty:
+        print(prompt, end="", flush=True)
+        return tty.readline().strip()
+
+
+@dataclass
+class Choices:
+    models: Path
+    modify_path: bool
+
+
+def summary(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True) -> str:
+    lines = [f"Machine   {hw.describe()}", f"Config    {config.name} ({config.status}): {config.description}", f"Memory    the stack peaks at {config.memory_peak_gib:.1f} GB",
+             f"Installs  to {home}", f"Models    to {c.models}: about {size_gb:.1f} GB to download"]
+    if builds:
+        lines.append("Build     audio.cpp from source, about a minute")
+    lines.append(f"Path      {'adds one line to ' + str(rc) if c.modify_path and rc else 'leaves your shell alone; you run ' + str(home / 'bin/speakrail') + ' by its full path'}")
+    return "\n".join(lines)
+
+
+def wizard(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True, ask=tty_ask) -> bool:
+    """-> go ahead? Changes `c` if asked to."""
+    while True:
+        say("\n" + summary(hw, config, home, c, rc, size_gb, builds) + "\n\n" + LICENSES + "\n\n  1) Proceed\n  2) Customize\n  3) Cancel\n")
+        answer = ask("> ")
+        if answer in ("", "1"):
+            return True
+        if answer == "3":
+            return False
+        if answer == "2":
+            entered = ask(f"Models folder [{c.models}]: ")
+            if entered:
+                c.models = Path(entered).expanduser().resolve()
+            if rc:
+                entered = ask(f"Add speakrail to your PATH, in {rc}? [{'Y/n' if c.modify_path else 'y/N'}]: ").lower()
+                if entered:
+                    c.modify_path = entered.startswith("y")
+        else:
+            say(f"Pick 1, 2 or 3, not {answer!r}.")
+
+
+# ---------------------------------------------------------------------- downloads
+@dataclass
+class File:
+    repo: str
+    revision: str
+    path: str                 # in the repo
+    dest: Path
+    size: int
+    sha256: str | None
+
+
+def select(listing, entry: dict, models: Path) -> list[File]:
+    """one [[download]] -> its files. `listing` is what the repo holds under entry["from"]: (path, size, sha256)."""
+    base = entry.get("from", "").strip("/")
+    out = []
+    for path, size, sha in listing:
+        rel = path[len(base) + 1:] if base else path
+        if any(fnmatch.fnmatch(rel, pattern) for pattern in entry["include"]) and not rel.startswith("."):
+            out.append(File(entry["repo"], entry["revision"], path, models / entry["to"] / rel, size, sha))
+    if not out:
+        where = f"{entry['repo']}/{base}" if base else entry["repo"]
+        raise InstallError(f"Nothing to download at {where}, revision {entry['revision']}: expected {', '.join(entry['include'])}. The repo may not have these files yet.")
+    return out
+
+
+def repo_listing(repo: str, revision: str, folder: str) -> list[tuple]:
+    """(path, size, sha256) of every file under a folder, from Hugging Face's API. A folder that isn't there lists nothing."""
+    url = f"{HUB}/api/models/{repo}/tree/{revision}" + (f"/{folder}" if folder else "") + "?recursive=true"
+    out = []
+    while url:
+        try:
+            r = requests.get(url, timeout=30)
+        except requests.RequestException as e:
+            raise InstallError(f"Can't reach Hugging Face: {type(e).__name__}") from e
+        if r.status_code == 404:
+            return []
+        if r.status_code != 200:
+            raise InstallError(f"Can't read {repo} on Hugging Face: HTTP {r.status_code}")
+        out += [(x["path"], x["size"], (x.get("lfs") or {}).get("oid")) for x in r.json() if x["type"] == "file"]
+        url = r.links.get("next", {}).get("url")
+    return out
+
+
+def plan(downloads, models: Path) -> list[File]:
+    files = []
+    for entry in downloads:
+        files += select(repo_listing(entry["repo"], entry["revision"], entry.get("from", "").strip("/")), entry, models)
+    return files
+
+
+def missing(files: list[File]) -> list[File]:
+    return [f for f in files if not (f.dest.exists() and f.dest.stat().st_size == f.size)]
+
+
+def sha256_of(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 24), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def download(url: str, dest: Path, size: int, sha256: str | None, retry_wait: float = 2.0) -> None:
+    """several connections at once, each fetching one chunk. <dest>.part holds the data and <dest>.part.done the chunks that finished,
+    so a run that stops loses only what was in flight, and the next one fetches the rest. The file gets its name once its checksum is right."""
+    part, log = dest.with_name(dest.name + ".part"), dest.with_name(dest.name + ".part.done")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not part.exists():
+        log.unlink(missing_ok=True)
+    done = {int(x) for x in log.read_text().split()} if log.exists() else set()
+    chunks = max(1, -(-size // CHUNK))
+    fd = os.open(part, os.O_CREAT | os.O_RDWR, 0o644)
+    os.ftruncate(fd, size)
+    lock, t0, got = threading.Lock(), time.monotonic(), [0]
+    show = sys.stdout.isatty() and size >= CHUNK
+
+    def one(i: int) -> None:
+        start, end, error = i * CHUNK, min(size, (i + 1) * CHUNK) - 1, None
+        for attempt in range(RETRIES):
+            try:
+                with requests.get(url, headers={"Range": f"bytes={start}-{end}"}, stream=True, timeout=(15, 60)) as r:
+                    if r.status_code != 206:
+                        raise OSError(f"HTTP {r.status_code}")
+                    pos = start
+                    for block in r.iter_content(1 << 20):
+                        os.pwrite(fd, block, pos)
+                        pos += len(block)
+                    if pos != end + 1:
+                        raise OSError("the connection ended early")
+                with lock:
+                    with open(log, "a") as f:
+                        f.write(f"{i}\n")
+                    got[0] += end + 1 - start
+                    if show:
+                        have = len(done) * CHUNK + got[0]
+                        print(f"\r  {min(1.0, have / size) * 100:3.0f}%  {have / 1e9:.2f} of {size / 1e9:.2f} GB  {got[0] / 1e6 / max(time.monotonic() - t0, 0.1):.0f} MB/s ", end="", flush=True)
+                return
+            except (requests.RequestException, OSError) as e:
+                error = e
+                time.sleep(retry_wait * 2 ** attempt)
+        raise InstallError(f"Couldn't download {dest.name}: {error}")
+
+    try:
+        with ThreadPoolExecutor(STREAMS) as pool:
+            list(pool.map(one, [i for i in range(chunks) if i not in done]))
+    finally:
+        os.close(fd)
+        if show:
+            print(flush=True)
+    if sha256 and sha256_of(part) != sha256:
+        part.unlink()
+        log.unlink(missing_ok=True)
+        raise InstallError(f"{dest.name} came down damaged (its checksum doesn't match). Run the installer again to fetch it again.")
+    os.replace(part, dest)
+    log.unlink(missing_ok=True)
+
+
+def fetch(files: list[File]) -> None:
+    todo = missing(files)
+    for i, f in enumerate(todo, 1):
+        say(f"[{i}/{len(todo)}] {f.dest.name}, {f.size / 1e9:.2f} GB" if f.size >= 1e7 else f"[{i}/{len(todo)}] {f.dest.name}")
+        download(f"{HUB}/{f.repo}/resolve/{f.revision}/{f.path}", f.dest, f.size, f.sha256)
+
+
+# ---------------------------------------------------------------------- audio.cpp
+def build_audiocpp(home: Path, platform: str) -> None:
+    pin = tomllib.loads((REPO_ROOT / "engines/audiocpp.toml").read_text())
+    build = pin["build"][sys.platform]
+    arch = platform_module(platform).cpu_arch()
+    stamp, out = f"{pin['source']['commit']} {arch}\n", home / "bin" / "audiocpp"
+    if (out / ".built").exists() and (out / ".built").read_text() == stamp and (out / build["target"]).exists():
+        say("audio.cpp is already built")
+        return
+    say(f"Building audio.cpp {pin['source']['commit'][:8]} for {arch}, about a minute...")
+    src, tools = home / "cache" / "audio.cpp", Path(sys.executable).parent
+    log_path = home / "logs" / "build-audiocpp.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(src, ignore_errors=True)
+    src.mkdir(parents=True)
+    steps = [["git", "init", "-q"], ["git", "fetch", "-q", "--depth", "1", pin["source"]["repo"], pin["source"]["commit"]], ["git", "checkout", "-q", "FETCH_HEAD"],
+             [str(tools / "cmake"), "-S", ".", "-B", "build", "-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={tools / 'ninja'}", *build["args"], f"-D{build['arch_flag']}={arch}"],
+             [str(tools / "cmake"), "--build", "build", "--target", build["target"]]]
+    with open(log_path, "wb") as log:
+        for step in steps:
+            log.write(f"\n=== {shlex.join(step)}\n".encode())
+            log.flush()
+            if subprocess.run(step, cwd=src, stdout=log, stderr=subprocess.STDOUT).returncode != 0:
+                tail = log_path.read_text(errors="replace").splitlines()[-12:]
+                raise InstallError("Building audio.cpp failed:\n" + "\n".join("  " + x for x in tail) + f"\nThe full log is {log_path}")
+    binary = next(p for p in (src / "build").rglob(build["target"]) if p.is_file() and os.access(p, os.X_OK))
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    shutil.copy2(binary, out / build["target"])
+    shutil.copytree(src / "model_specs", out / "model_specs")
+    (out / ".built").write_text(stamp)
+    shutil.rmtree(src)
+
+
+# ---------------------------------------------------------------------- the command
+def write_command(home: Path, models: Path) -> Path:
+    path = home / "bin" / "speakrail"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    env = f"export SPEAKRAIL_HOME={shlex.quote(str(home))}\n"
+    if models != home / "models":
+        env += f"export MODELS_DIR={shlex.quote(str(models))}\n"
+    path.write_text(f"#!/bin/sh\n{env}exec {shlex.quote(sys.executable)} -m speakrail \"$@\"\n")
+    path.chmod(0o755)
+    return path
+
+
+def rc_file(shell: str, user_home: Path) -> Path | None:
+    name = Path(shell or "").name
+    if name == "zsh":
+        return user_home / ".zshrc"
+    if name == "bash":
+        return user_home / (".bash_profile" if sys.platform == "darwin" else ".bashrc")
+    return None
+
+
+def add_to_path(rc: Path, bin_dir: Path) -> bool:
+    """-> whether it changed anything. It's one marked line, so taking Speakrail out again is deleting it."""
+    current = rc.read_text() if rc.exists() else ""
+    if RC_MARK in current:
+        return False
+    with open(rc, "a") as f:
+        f.write(f"{'' if not current or current.endswith(chr(10)) else chr(10)}export PATH={shlex.quote(str(bin_dir))}:\"$PATH\"  {RC_MARK}\n")
+    return True
+
+
+# ---------------------------------------------------------------------- the whole thing
+def main(a) -> int:
+    from .resolver import ResolveError
+    from .run import setup
+    from .supervisor import install as install_env
+    home = Path(CFG.home)
+    hw = detect()
+    try:
+        resolved, _, _ = setup(argparse.Namespace(config=a.config, set=None, param=None, force=False))
+    except (ResolveError, ValueError) as e:
+        say(str(e))
+        return _cancel(home, a, 2)
+    config = resolved.config
+    builds = any("audiocpp_dir" in e.params for e in resolved.engines.values())
+    choices = Choices(models=Path(a.models).expanduser().resolve() if a.models else Path(CFG.models_dir or home / "models"), modify_path=not a.no_modify_path)
+    rc = rc_file(os.environ.get("SHELL", ""), Path.home())
+    try:
+        files = plan(config.downloads, choices.models)
+        size_gb = sum(f.size for f in missing(files)) / 1e9
+        if not a.yes and not wizard(hw, config, home, choices, rc, size_gb, builds):
+            say("Cancelled.")
+            return _cancel(home, a, 0)
+        if a.yes:
+            say("\n" + summary(hw, config, home, choices, rc, size_gb, builds) + "\n\n" + LICENSES + "\n")
+        files = plan(config.downloads, choices.models)     # the models folder may have changed
+        need = sum(f.size for f in missing(files)) / 2**30
+        choices.models.mkdir(parents=True, exist_ok=True)
+        free = shutil.disk_usage(choices.models).free / 2**30
+        if need > free:
+            raise InstallError(f"The models need {need:.1f} GB and {choices.models} has {free:.1f} GB free.")
+        for e in resolved.engines.values():
+            if e.python:
+                say(f"\nSetting up {e.id}, which has its own Python libraries...")
+                install_env(e, home, uv=str(home / "bin" / "uv"))
+        if builds:
+            build_audiocpp(home, hw.platform)
+        if files:
+            say("Fetching the models. If this stops, run the installer again and it carries on.")
+            fetch(files)
+    except (InstallError, subprocess.CalledProcessError, OSError) as e:
+        say(f"{e}\nRun the installer again to carry on from here.")
+        return 1
+    except KeyboardInterrupt:
+        say("\nStopped. Run the installer again to carry on from here.")
+        os._exit(130)                      # not waiting for the connections in flight
+    command = write_command(home, choices.models)
+    added = choices.modify_path and rc is not None and add_to_path(rc, command.parent)
+    shutil.rmtree(home / "cache", ignore_errors=True)
+    say(f"\nSpeakrail is installed.\n")
+    on_path = choices.modify_path and rc is not None
+    if on_path:
+        say(f"Open a new terminal, or run this one first:\n  export PATH={shlex.quote(str(command.parent))}:\"$PATH\"\n")
+    say(f"Then start it: {'speakrail' if on_path else command} start\nThe first start measures this machine, a minute or two. Then open the page it shows you.")
+    return 0
+
+
+def _cancel(home: Path, a, code: int) -> int:
+    """nothing is left behind if this run is what made the folder"""
+    if a.fresh:
+        shutil.rmtree(home, ignore_errors=True)
+    return code

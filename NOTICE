@@ -1,10 +1,40 @@
 Speakrail
 Copyright 2026 The Speakrail Authors
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Only Speakrail's source code is licensed under the Apache License, Version 2.0 (see LICENSE).
+That license does not cover the models, their weights or the audio they generate, or the files listed under "Other files" below.
 
-Speakrail downloads and runs the third-party models and software.
+Speakrail downloads and runs third-party models and software.
 They are not part of this repository's source and keep their own licenses.
 Using Speakrail means accepting those licenses as well.
 
-The web UI ships the Kripa and Lilex fonts, under the SIL Open Font License 1.1 (src/speakrail/harness/web/fonts/OFL.txt).
+Models
+
+Voxtral Mini 4B Realtime, by Mistral AI. Apache License 2.0.
+  https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602
+  Speakrail adds its own turn-taking head and uses the quantized conversion published by the audio.cpp project.
+
+Gemma 4 E4B, by Google. Apache License 2.0.
+  https://huggingface.co/google/gemma-4-E4B-it
+  https://ai.google.dev/gemma/docs/gemma_4_license
+  Speakrail uses a quantized checkpoint with its own adapter for turn-taking.
+
+Pocket TTS, by Kyutai. Creative Commons Attribution 4.0 (CC-BY-4.0).
+  https://huggingface.co/kyutai/pocket-tts
+  Speakrail uses the GGUF conversion, with most weights quantized to 8 bits, published by the audio.cpp project.
+  https://huggingface.co/audio-cpp/audio.cpp-gguf
+  Kyutai's terms prohibit illegal, harmful, deceptive, fraudulent or unauthorized use, including voice impersonation or
+  cloning without explicit and lawful consent; misinformation or deception, such as fake news, fraudulent calls, or
+  presenting generated content as genuine recordings of real people or events; and generating unlawful, harmful,
+  libelous, abusive, harassing, discriminatory, hateful or privacy-invasive content. Speakrail can clone a voice from
+  an audio file, and these terms apply to that. See "Prohibited use" on the model card.
+
+Breeze TTS 2, by BreezeBlue (Resonia, Inc.). BreezeBlue Research and Non-Commercial License.
+  https://huggingface.co/BreezeBlue/Breeze-TTS-2
+  The weights and the audio they generate are for research and non-commercial use only; commercial use needs a separate license from BreezeBlue.
+
+Other files
+
+The Kripa and Lilex fonts in the web UI: SIL Open Font License 1.1 (src/speakrail/harness/web/fonts/OFL.txt).
+
+src/speakrail/harness/voices/female_a.wav and its transcript: audio generated with Breeze TTS 2, so its license applies.

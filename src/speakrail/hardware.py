@@ -41,6 +41,14 @@ def _load_detect(folder: Path):
     return module
 
 
+def platform_module(platform: str, paths=None):
+    """the detect.py of a named platform, or None"""
+    for folder in platform_dirs(paths):
+        if tomllib.loads((folder / "platform.toml").read_text())["name"] == platform:
+            return _load_detect(folder)
+    return None
+
+
 def detect(paths=None) -> Hardware | None:
     """the first platform that recognises this machine, or None"""
     for folder in platform_dirs(paths):
@@ -66,11 +74,7 @@ def _rss_by_pid() -> dict[int, float]:
 
 def engine_memory(groups: dict[str, list[int]], platform: str, paths=None) -> dict[str, float]:
     """name -> GiB held by these process groups. A platform's detect.py can offer memory_by_pid() where RSS misses memory that counts."""
-    measure = _rss_by_pid
-    for folder in platform_dirs(paths):
-        if tomllib.loads((folder / "platform.toml").read_text())["name"] == platform:
-            measure = getattr(_load_detect(folder), "memory_by_pid", _rss_by_pid)
-    by_pid = measure()
+    by_pid = getattr(platform_module(platform, paths), "memory_by_pid", _rss_by_pid)()
     out = subprocess.run(["ps", "-axo", "pid=,pgid="], capture_output=True, text=True, timeout=10).stdout
     members: dict[int, list[int]] = {}
     for line in out.splitlines():

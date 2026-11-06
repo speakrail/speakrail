@@ -170,10 +170,19 @@ def main(argv=None) -> int:
     choices(cfg_p)
     choices(top.add_parser("doctor", help="check that this machine is ready"))
     choices(top.add_parser("bench", help="measure this machine again"))
+    inst = top.add_parser("install", help="what install.sh runs once Python is ready")
+    inst.add_argument("--yes", action="store_true", help="no questions: the choices it would suggest")
+    inst.add_argument("--config", help="install this config instead of choosing one")
+    inst.add_argument("--models", help="where the models go, instead of <home>/models")
+    inst.add_argument("--no-modify-path", action="store_true", help="don't add speakrail to your shell's PATH")
+    inst.add_argument("--fresh", action="store_true", help=argparse.SUPPRESS)      # install.sh made the folder just now, so Cancel can take it away
     a = p.parse_args(argv)
     try:
         if a.group == "engine":
             return a.fn(discover(), a) or 0
+        if a.group == "install":
+            from . import installer
+            return installer.main(a)
         from . import doctor, run, service
         commands = {"start": service.start_main, "stop": service.stop_main, "status": service.status_main, "logs": service.logs_main, "load": service.load_main, "offload": service.offload_main}
         if a.group in commands:

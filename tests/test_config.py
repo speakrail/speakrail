@@ -85,7 +85,7 @@ def test_file_mistakes_are_errors():
 
 
 def test_only_config_reads_the_environment():
-    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py", "service.py"}   # the others hand their environment to child processes
+    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py", "service.py", "installer.py"}   # the others hand their environment to child processes, or (installer) read which shell this is
     found = []
     for p in (ROOT / "src").rglob("*.py"):
         if p.name not in allowed and re.search(r"os\.environ|os\.getenv|getenv\(", p.read_text()):

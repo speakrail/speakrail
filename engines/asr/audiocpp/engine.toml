@@ -19,7 +19,7 @@ requirements = "requirements.txt"
 [params]
 audiocpp_dir = "${home}/bin/audiocpp"
 gguf = "${models}/voxtral/voxtral-mini-4b-realtime-2602-q4_k.gguf"
-head = "${models}/turn_head/all_ant80.vxth"
+head = "${models}/turn_head/turn_head.vxth"
 backend = "metal"
 threads = "4"
 

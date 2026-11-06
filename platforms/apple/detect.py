@@ -16,6 +16,17 @@ def parse_vm_stat(text):
     return sum(pages.get(k, 0) for k in ("free", "inactive", "speculative", "purgeable")) * size
 
 
+def parse_arch(features):
+    """the CPU features this chip reports -> what to compile for. Armv8.6 brings BF16 and I8MM with it, which M1 doesn't have."""
+    has = lambda name: features.get(name) == "1"
+    arch = "armv8.6-a" if has("FEAT_BF16") and has("FEAT_I8MM") else "armv8.4-a"
+    return arch + "".join(f"+{flag}" for flag, name in (("dotprod", "FEAT_DotProd"), ("i8mm", "FEAT_I8MM"), ("fp16", "FEAT_FP16")) if has(name))
+
+
+def cpu_arch():
+    return parse_arch({name: _sysctl(f"hw.optional.arm.{name}") for name in ("FEAT_BF16", "FEAT_I8MM", "FEAT_DotProd", "FEAT_FP16")})
+
+
 def parse_pressure(level):
     """kern.memorystatus_vm_pressure_level: what macOS itself thinks, which free pages alone can't say (it can compress other apps)"""
     return {"2": "warn", "4": "critical"}.get(level.strip(), "normal")

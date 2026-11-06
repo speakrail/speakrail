@@ -240,6 +240,6 @@ def install(engine: Engine, home: Path | str | None = None, uv: str = "uv") -> P
     home = Path(home or CFG.home)
     env = engine.env_dir(home)
     env.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([uv, "venv", "--allow-existing", "--python", str(engine.python.get("version", "3.12")), str(env)], check=True)
+    subprocess.run([uv, "-q", "venv", "--allow-existing", "--python", str(engine.python.get("version", "3.12")), str(env)], check=True)
     subprocess.run([uv, "pip", "install", "--python", str(env / "bin" / "python"), "-r", str(engine.dir / engine.python["requirements"])], check=True)
     return env
