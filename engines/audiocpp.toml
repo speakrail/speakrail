@@ -1,0 +1,30 @@
+# The audio.cpp build behind asr/audiocpp and tts/pocket: one binary, run as two processes with different backends.
+# Move this pin only together with `speakrail engine test` on both engines and a tape replay.
+
+[source]
+repo = "https://github.com/speakrail/audio.cpp.git"
+branch = "turn-head-2611"       # for reference; the commit is what counts
+commit = "c40b5e0b"             # upstream ae1cbcb6 + peek and turn head + VXTHEAD2
+models = "voxtral_realtime;pocket_tts"
+
+# Tested on Apple M4 Pro. The Linux Docker image in asr/audiocpp still builds its older pin until the Linux engines are redone.
+[build.darwin]
+args = [
+  "-DCMAKE_BUILD_TYPE=Release",
+  "-DAUDIOCPP_MODEL_SET=custom",
+  "-DAUDIOCPP_MODELS=voxtral_realtime;pocket_tts",
+  "-DENGINE_ENABLE_METAL=ON",
+  "-DENGINE_ENABLE_CUDA=OFF",
+  "-DENGINE_ENABLE_VULKAN=OFF",
+  "-DENGINE_ENABLE_OPENMP=OFF",
+  "-DENGINE_ENABLE_CPU_ALL_VARIANTS=OFF",
+  "-DENGINE_ENABLE_NATIVE_CPU=OFF",    # native probing hung on an SVE test here, and a shipped binary mustn't depend on the build machine
+  "-DGGML_NATIVE=OFF",
+  "-DGGML_METAL_EMBED_LIBRARY=ON",
+  "-DGGML_CPU_ARM_ARCH=armv8.6-a+dotprod+i8mm+fp16",   # to check before release: M1 may lack i8mm
+  "-DCMAKE_OSX_ARCHITECTURES=arm64",
+  "-DENGINE_BUILD_EXAMPLES=OFF",
+  "-DENGINE_BUILD_TESTS=OFF",
+  "-DENGINE_BUILD_WARMBENCH=OFF",
+]
+target = "audiocpp_server"

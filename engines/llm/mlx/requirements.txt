@@ -1,0 +1,6 @@
+# Pinned to what the Mac benchmarks ran on. mlx-lm is that exact commit: PyPI's 0.32.0 needs a newer mlx than this.
+mlx==0.32.1
+mlx-lm @ git+https://github.com/ml-explore/mlx-lm@9e6acca691e64d6d8bb808c328fcdea459099cca
+aiohttp==3.14.5
+numpy==2.3.5
+transformers==5.17.0

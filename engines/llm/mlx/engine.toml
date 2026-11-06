@@ -1,0 +1,33 @@
+contract = 1
+role = "llm"
+name = "mlx"
+description = "Gemma E4B and the Speakrail LoRA on Apple Silicon, with native MLX"
+capabilities = ["chat", "parallel", "per_request_adapter", "cancel", "prefix_cache"]
+platforms = ["darwin"]
+url = "http://127.0.0.1:${port_main}/v1/completions"
+startup_timeout_s = 180
+
+[ports]
+main = 8000
+
+[python]
+version = "3.12"
+requirements = "requirements.txt"
+
+[params]
+model = "${models}/speakrail-e4b-mlx"
+adapter = "${models}/speakrail-e4b-adapter-mlx"
+max_ctx = "16384"
+memory_limit_gb = "13"
+wired_limit_gb = "11"
+cache_limit_gb = "1"
+fast_prefill = "1"
+ple_mmap = "1"
+notes_share = "3"
+request_log = "${home}/logs/llm-mlx/requests.jsonl"
+
+[[process]]
+name = "server"
+cmd = ["${python}", "-u", "${engine_dir}/server.py", "--port", "${port_main}", "--model", "${model}", "--adapter", "${adapter}", "--max-ctx", "${max_ctx}", "--memory-limit-gb", "${memory_limit_gb}", "--wired-limit-gb", "${wired_limit_gb}", "--cache-limit-gb", "${cache_limit_gb}", "--fast-prefill", "${fast_prefill}", "--ple-mmap", "${ple_mmap}", "--notes-share", "${notes_share}", "--request-log", "${request_log}"]
+env = { HF_HUB_OFFLINE = "1", TRANSFORMERS_VERBOSITY = "error", TOKENIZERS_PARALLELISM = "false" }
+health = "http://127.0.0.1:${port_main}/health"

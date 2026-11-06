@@ -27,6 +27,9 @@ class Config:
     tts_model: str = "pocket-tts"
     breeze_int8: str = "backbone,text_encoder,depth"
     # paths
+    home: str = str(Path.home() / ".speakrail")       # engine environments, logs and runtime files
+    models_dir: str = ""             # "" = <home>/models
+    engines_path: str = ""           # more folders to find engines in, separated by the OS path separator
     tokenizer_dir: str = str(REPO_ROOT / "models" / "speakrail-gemma" / "tokenizer")
     phrase_cache_dir: str = str(REPO_ROOT / "run" / "phrase_cache")
     sessions_dir: str = ""           # "" = sessions are not saved
@@ -71,6 +74,7 @@ def _off_if_0(v: str) -> bool:
 ENV = {
     "asr_url": ("ASR_URL", str), "llm_url": ("LLM_URL", str), "llm_lora": ("LLM_LORA", str), "llm_base_model": ("LLM_BASE_MODEL", str),
     "tts_engine": ("TTS_ENGINE", str), "tts_url": ("TTS_URL", str), "tts_model": ("TTS_MODEL", str), "breeze_int8": ("BREEZE_INT8", str),
+    "home": ("SPEAKRAIL_HOME", str), "models_dir": ("MODELS_DIR", str), "engines_path": ("SPEAKRAIL_ENGINES_PATH", str),
     "tokenizer_dir": ("SPEAKRAIL_TOKENIZER_DIR", str), "phrase_cache_dir": ("PHRASE_CACHE_DIR", str), "sessions_dir": ("SESSIONS_DIR", str),
     "ui_host": ("UI_HOST", str), "ui_port": ("UI_PORT", int),
     "persona": ("PERSONA", str), "voice": ("VOICE", str), "home_city": ("HOME_CITY", str), "home_timezone": ("HOME_TIMEZONE", str),

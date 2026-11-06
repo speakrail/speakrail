@@ -1,0 +1,38 @@
+contract = 1
+role = "asr"
+name = "audiocpp"
+description = "Voxtral Mini 4B Realtime with the turn head on audio.cpp, behind the bridge"
+capabilities = ["transcribe", "turn_head", "anticipation", "peek"]
+platforms = ["darwin"]         # Linux runs the Docker image in this folder; its manifest entry arrives with the Linux engines
+url = "ws://127.0.0.1:${port_main}/v1/transcribe"
+startup_timeout_s = 120
+
+[ports]
+main = 8765
+backend = 8090
+
+[python]
+version = "3.12"
+requirements = "requirements.txt"
+
+[params]
+audiocpp_dir = "${home}/bin/audiocpp"
+gguf = "${models}/voxtral/voxtral-mini-4b-realtime-2602-q4_k.gguf"
+head = "${models}/turn_head/all_ant80.vxth"
+backend = "metal"
+threads = "4"
+
+[[file]]
+name = "audiocpp.json"
+template = "audiocpp.json.in"
+
+[[process]]
+name = "audiocpp"
+cmd = ["${audiocpp_dir}/audiocpp_server", "--config", "${run}/audiocpp.json"]
+cwd = "${audiocpp_dir}"
+health = "http://127.0.0.1:${port_backend}/health"
+
+[[process]]
+name = "bridge"
+cmd = ["${python}", "-u", "${engine_dir}/bridge.py", "--host", "127.0.0.1", "--port", "${port_main}", "--acpp", "127.0.0.1:${port_backend}", "--model", "voxtral-rt", "--head", "${head}.json"]
+health = "tcp://127.0.0.1:${port_main}"

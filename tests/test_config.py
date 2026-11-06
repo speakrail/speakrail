@@ -15,7 +15,7 @@ def test_defaults_match_the_old_code():
     c = load({})
     expected = dict(asr_url="ws://127.0.0.1:8765/v1/transcribe", llm_url="http://127.0.0.1:8001/v1/completions", llm_lora="speakrail",
                     llm_base_model="speakrail-base", tts_engine="breeze", tts_url="", tts_model="pocket-tts", breeze_int8="backbone,text_encoder,depth",
-                    tokenizer_dir=str(ROOT / "models/speakrail-gemma/tokenizer"), phrase_cache_dir=str(ROOT / "run/phrase_cache"), sessions_dir="",
+                    home=str(Path.home() / ".speakrail"), models_dir="", engines_path="", tokenizer_dir=str(ROOT / "models/speakrail-gemma/tokenizer"), phrase_cache_dir=str(ROOT / "run/phrase_cache"), sessions_dir="",
                     ui_host="127.0.0.1", ui_port=8080, persona="nova", voice="", home_city="London", home_timezone="Europe/London",
                     silence_ms=1000, turn_tau=0.9, turn_k=3, spec=True, peek_frames=0, ant4="", ant4_age_s=0.5, ant4_confirm_skip=True,
                     notes=True, interject=True, tool_hold_ms=600, search="off", searxng_url="http://127.0.0.1:8888/search")
@@ -75,7 +75,7 @@ def test_file_mistakes_are_errors():
 
 
 def test_only_config_reads_the_environment():
-    allowed = {"config.py", "claude_tool.py"}        # claude_tool copies the whole environment for its child process, minus secrets
+    allowed = {"config.py", "claude_tool.py", "supervisor.py"}   # the other two hand their environment to child processes, minus secrets
     found = []
     for p in (ROOT / "src").rglob("*.py"):
         if p.name not in allowed and re.search(r"os\.environ|os\.getenv|getenv\(", p.read_text()):

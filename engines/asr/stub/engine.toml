@@ -1,0 +1,20 @@
+# The reference ASR engine: no model and no GPU. Copy this folder to start a new engine.
+contract = 1
+role = "asr"
+name = "stub"
+description = "Fake words and turn probabilities from audio energy, for tests and as a template"
+capabilities = ["transcribe", "turn_head", "anticipation", "peek"]
+platforms = ["darwin", "linux"]
+url = "ws://127.0.0.1:${port_main}/v1/transcribe"
+startup_timeout_s = 20
+
+[ports]
+main = 18765
+
+[params]
+flags = ""
+
+[[process]]
+name = "server"
+cmd = ["${python}", "-u", "${engine_dir}/server.py", "--port", "${port_main}", "--flags", "${flags}"]
+health = "http://127.0.0.1:${port_main}/health"
