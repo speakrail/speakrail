@@ -1,0 +1,24 @@
+# The reference TTS engine: no model and no GPU. Copy this folder to add your own streaming TTS.
+contract = 1
+role = "tts"
+name = "stub"
+description = "A tone for every request, for tests and as a template"
+capabilities = ["stream", "cancel"]
+platforms = ["darwin", "linux"]
+url = "http://127.0.0.1:${port_main}/v1/audio/speech"
+startup_timeout_s = 20
+
+[ports]
+main = 18091
+
+[params]
+flags = ""
+
+[harness]
+worker = "pocket"          # the harness's client for this contract
+model = "stub-tts"
+
+[[process]]
+name = "server"
+cmd = ["${python}", "-u", "${engine_dir}/server.py", "--port", "${port_main}", "--flags", "${flags}"]
+health = "http://127.0.0.1:${port_main}/health"

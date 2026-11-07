@@ -1,0 +1,42 @@
+# The same audio.cpp and bridge as asr/audiocpp, from the Docker image built by asr/audiocpp/Dockerfile: two containers, one per process.
+contract = 1
+role = "asr"
+name = "audiocpp-docker"
+description = "Voxtral Mini 4B Realtime with the turn head on audio.cpp, behind the bridge, on an NVIDIA GPU"
+capabilities = ["transcribe", "turn_head", "anticipation", "peek"]
+platforms = ["linux"]
+url = "ws://127.0.0.1:${port_main}/v1/transcribe"
+startup_timeout_s = 120
+needs = ["${models}/voxtral/${gguf_file}", "${models}/turn_head/turn_head.vxth", "${models}/turn_head/turn_head.vxth.json"]
+
+[ports]
+main = 8765
+backend = 8090
+
+[params]
+image = "speakrail/audiocpp-server:0.2.0"
+gguf_file = "voxtral-mini-4b-realtime-2602-q8_0.gguf"
+backend = "cuda"
+threads = "4"
+
+[[file]]
+name = "audiocpp.json"
+template = "audiocpp.json.in"
+
+[[process]]
+name = "audiocpp"
+image = "${image}"
+entrypoint = "/app/audiocpp_server"
+cmd = ["--config", "/run/speakrail/audiocpp.json"]
+gpu = true
+mounts = ["${models}:/models:ro", "${run}:/run/speakrail:ro"]
+env = { OMP_NUM_THREADS = "4", OMP_WAIT_POLICY = "PASSIVE" }   # OpenMP otherwise starts a spinning worker per core
+health = "http://127.0.0.1:${port_backend}/health"
+
+[[process]]
+name = "bridge"
+image = "${image}"
+entrypoint = "python3"
+cmd = ["-u", "/app/bridge.py", "--host", "127.0.0.1", "--port", "${port_main}", "--acpp", "127.0.0.1:${port_backend}", "--model", "voxtral-rt", "--head", "/models/turn_head/turn_head.vxth.json"]
+mounts = ["${models}:/models:ro"]
+health = "tcp://127.0.0.1:${port_main}"

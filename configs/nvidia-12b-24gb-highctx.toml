@@ -1,0 +1,107 @@
+# nvidia-12b-24gb with Pocket on the CPU instead of Breeze on the GPU: a worse voice, for eight times the context. Breeze's 5.1 GiB of
+# GPU memory go to the LLM's KV cache, so the context grows from 16k to 128k tokens (Gemma 4 keeps 40 of its 48 layers to a 1,024-token
+# window, so a long context costs little: 7.15 GiB hold 135k tokens). A conversation fills about 500 tokens a minute (more with web
+# searches and notes), so that is about four hours before it is full, instead of about half an hour.
+# Pocket sounds less natural than Breeze. Its licence allows commercial use, which Breeze's doesn't.
+# Only by name: speakrail run --config nvidia-12b-24gb-highctx
+#
+# Speakrail has been measured with a 16k context. Past that, how well it replies hasn't been measured.
+name = "nvidia-12b-24gb-highctx"
+status = "experimental"
+description = "Gemma 12B on vLLM, Voxtral q8, Pocket on the CPU, on one 24 GB NVIDIA GPU: a worse voice than Breeze, traded for eight times the context (128k tokens)"
+platform = "cuda"
+priority = 15
+memory_peak_gib = 22.7    # all processes, measured with notes on: 22.62 at the start. It leaves a desktop 1.3 GB; past that the recognizer's peeks fail, silently
+disk_gib = 16.0          # the models; the images are another 35 GB
+
+[engines]
+asr = "asr/audiocpp-docker"
+tts = "tts/pocket-docker"
+llm = "llm/vllm-docker"
+
+[harness]
+tokenizer_dir = "${models}/speakrail-gemma/tokenizer"
+voice = "jane"            # one of Pocket's built-in voices
+llm_lora = "speakrail"
+llm_base_model = "speakrail-base"
+turn_k = 1                # all_ant80 was benchmarked at K=1
+spec = true
+ant4 = ""                 # on audio.cpp its confirming peek collides with the LLM and TTS starting: 936/1477 ms to the ear with it, 731/1302 without
+peek_frames = 10          # the best of the 10-19 A/B on 12B: 82 ms to the ear over 8
+notes = true
+tool_hold_ms = 300
+
+[params."asr/audiocpp-docker"]
+gguf_file = "voxtral-mini-4b-realtime-2602-q8_0.gguf"
+
+[params."llm/vllm-docker"]
+model_dir = "speakrail-gemma/model"
+adapter_dir = "speakrail-gemma/adapter"
+max_model_len = "131072"
+gpu_share = "0.69"       # 16.2 GiB on a 24 GB card: the 11.3 of nvidia-12b-24gb plus most of what Breeze used, all of it KV cache (135k tokens)
+
+[run]
+phrase_cache = true
+
+[[download]]
+repo = "speakrail/speakrail-voxtral-realtime-2602-turnhead-2611"    # the all_ant80 head
+revision = "f0cfe64e4941c95d3cac650bd7773ea0f75b284c"
+include = ["turn_head.vxth", "turn_head.vxth.json"]
+to = "turn_head"
+
+[[download]]
+repo = "audio-cpp/audio.cpp-gguf"
+revision = "e36610ac69b5262e914a52635324050bee8f1ad2"
+from = "Voxtral-Mini-4B-Realtime-2602-GGUF"
+include = ["voxtral-mini-4b-realtime-2602-q8_0.gguf"]
+to = "voxtral"
+
+[[download]]
+repo = "audio-cpp/audio.cpp-gguf"
+revision = "661a224e9d9adbd49c01626f85e426f5f425d771"               # the model file has changed since; this is the one measured
+from = "PocketTTS-GGUF/english"
+include = ["pocket-tts-english-q8_0.gguf", "embeddings/jane.safetensors"]
+to = "pocket/english"
+
+[[download]]                  # Google's weights, which we don't re-host; [[patch]] writes our rows into them
+repo = "google/gemma-4-12B-it-qat-w4a16-ct"
+revision = "1d2c2d7f2466070e69d6fb3fd5ce9a7d75f2f6ee"
+include = ["config.json", "generation_config.json", "processor_config.json", "model.safetensors"]
+to = "speakrail-gemma/model"
+
+[[download]]                  # v5 s2376
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+include = ["adapter_model.safetensors", "adapter_config.json"]
+to = "speakrail-gemma/adapter"
+
+[[download]]
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+include = ["token_rows.safetensors"]
+to = "speakrail-gemma"
+
+[[download]]
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-gemma/tokenizer"
+
+[[download]]                  # vLLM serves the model folder, so it needs the same tokenizer
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-gemma/model"
+
+[[patch]]
+weights = "speakrail-gemma/model/model.safetensors"
+rows = "speakrail-gemma/token_rows.safetensors"
+sha256 = "cea2cc956b76af496c85637a6fb87a7ed8f53e028729e8c92db0d698908af6ec"
+
+[evidence]
+machine = "RTX 4090, 24 GB, Linux"
+date = "2026-11-07"
+tapes = "2 recordings, replayed through `speakrail run` at real time, from a first launch: 10 replies, no errors. Not yet a long conversation"
+last_word_to_ear_ms = "576/1463"

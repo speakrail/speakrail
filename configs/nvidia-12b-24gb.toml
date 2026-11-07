@@ -1,0 +1,98 @@
+name = "nvidia-12b-24gb"
+status = "tested"
+description = "Gemma 12B on vLLM, Voxtral q8, Breeze TTS 2 (non-commercial) on one 24 GB NVIDIA GPU"
+platform = "cuda"
+priority = 20
+memory_peak_gib = 22.9    # all processes, measured with notes on. It leaves a desktop 1.1 GB; past that the recognizer's peeks fail, silently
+disk_gib = 24.0          # the models; the images are another 49 GB
+
+[engines]
+asr = "asr/audiocpp-docker"
+tts = "tts/breeze-docker"
+llm = "llm/vllm-docker"
+
+[harness]
+tokenizer_dir = "${models}/speakrail-gemma/tokenizer"
+voice = "female_a.wav"    # one of the voices next to the harness
+llm_lora = "speakrail"
+llm_base_model = "speakrail-base"
+turn_k = 1                # all_ant80 was benchmarked at K=1
+spec = true
+ant4 = ""                 # on audio.cpp its confirming peek collides with the LLM and TTS starting: 936/1477 ms to the ear with it, 731/1302 without
+peek_frames = 10          # the best of the 10-19 A/B on 12B: 82 ms to the ear over 8
+notes = true
+tool_hold_ms = 300
+
+[params."asr/audiocpp-docker"]
+gguf_file = "voxtral-mini-4b-realtime-2602-q8_0.gguf"
+
+[params."llm/vllm-docker"]
+model_dir = "speakrail-gemma/model"
+adapter_dir = "speakrail-gemma/adapter"
+max_model_len = "16384"
+gpu_share = "0.48"       # 11.3 GiB on a 24 GB card
+
+[run]
+phrase_cache = true
+
+[[download]]
+repo = "speakrail/speakrail-voxtral-realtime-2602-turnhead-2611"    # the all_ant80 head
+revision = "f0cfe64e4941c95d3cac650bd7773ea0f75b284c"
+include = ["turn_head.vxth", "turn_head.vxth.json"]
+to = "turn_head"
+
+[[download]]
+repo = "audio-cpp/audio.cpp-gguf"
+revision = "e36610ac69b5262e914a52635324050bee8f1ad2"
+from = "Voxtral-Mini-4B-Realtime-2602-GGUF"
+include = ["voxtral-mini-4b-realtime-2602-q8_0.gguf"]
+to = "voxtral"
+
+[[download]]
+repo = "BreezeBlue/Breeze-TTS-2"
+revision = "3e28c5151381a722f1d8661b4118c298caa77aa4"
+include = ["LICENSE", "README.md", "config.json", "generation_config.json", "model.safetensors.index.json", "model-*.safetensors", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json", "audio_tokenizer/*"]
+to = "breeze-tts-2"
+
+[[download]]                  # Google's weights, which we don't re-host; [[patch]] writes our rows into them
+repo = "google/gemma-4-12B-it-qat-w4a16-ct"
+revision = "1d2c2d7f2466070e69d6fb3fd5ce9a7d75f2f6ee"
+include = ["config.json", "generation_config.json", "processor_config.json", "model.safetensors"]
+to = "speakrail-gemma/model"
+
+[[download]]                  # v5 s2376
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+include = ["adapter_model.safetensors", "adapter_config.json"]
+to = "speakrail-gemma/adapter"
+
+[[download]]
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+include = ["token_rows.safetensors"]
+to = "speakrail-gemma"
+
+[[download]]
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-gemma/tokenizer"
+
+[[download]]                  # vLLM serves the model folder, so it needs the same tokenizer
+repo = "speakrail/gemma-4-12B-it-qat-Speakrail"
+revision = "f1004b2763dafee266f108bb2f5167554b984c48"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-gemma/model"
+
+[[patch]]
+weights = "speakrail-gemma/model/model.safetensors"
+rows = "speakrail-gemma/token_rows.safetensors"
+sha256 = "cea2cc956b76af496c85637a6fb87a7ed8f53e028729e8c92db0d698908af6ec"
+
+[evidence]
+machine = "RTX 4090, 24 GB, Linux"
+date = "2026-11-07"
+tapes = "6 recordings, replayed through `speakrail run` at real time, from a first launch: 66 replies, no errors"
+last_word_to_ear_ms = "736/1327"

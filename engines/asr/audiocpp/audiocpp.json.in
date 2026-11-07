@@ -1,0 +1,29 @@
+{
+  "host": "127.0.0.1",
+  "port": ${port_backend},
+  "backend": "${backend}",
+  "device": 0,
+  "threads": ${threads},
+  "lazy_load": false,
+  "busy_timeout_ms": 0,
+  "live_ingest": {
+    "idle_timeout_ms": 120000,
+    "total_timeout_ms": 14400000,
+    "max_body_bytes": 4294967296,
+    "max_chunk_bytes": 8388608,
+    "send_timeout_ms": 30000
+  },
+  "models": [
+    {
+      "id": "voxtral-rt",
+      "family": "voxtral_realtime",
+      "path": "${gguf}",
+      "task": "asr",
+      "mode": "streaming",
+      "session_options": {
+        "voxtral_realtime.turn_head": "${head}",
+        "voxtral_realtime.stream_chunk_samples": "128"
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "host": "127.0.0.1",
+  "port": ${port_main},
+  "backend": "cpu",
+  "device": 0,
+  "threads": ${threads},
+  "lazy_load": false,
+  "busy_timeout_ms": 30000,
+  "models": [
+    {
+      "id": "pocket-tts",
+      "family": "pocket_tts",
+      "path": "/models/pocket/english/${gguf_file}",
+      "task": "tts",
+      "mode": "streaming",
+      "load_options": { "language": "english" },
+      "default_voice_preset": { "voice_id": "${default_voice}" }
+    }
+  ]
+}

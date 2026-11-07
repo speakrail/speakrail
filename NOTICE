@@ -1,68 +1,40 @@
 Speakrail
 Copyright 2026 The Speakrail Authors
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+Only Speakrail's source code is licensed under the Apache License, Version 2.0 (see LICENSE).
+That license does not cover the models, their weights or the audio they generate, or the files listed under "Other files" below.
 
-Speakrail downloads and runs the third-party models and software listed below.
+Speakrail downloads and runs third-party models and software.
 They are not part of this repository's source and keep their own licenses.
 Using Speakrail means accepting those licenses as well.
 
---------------------------------------------------------------------------------
 Models
---------------------------------------------------------------------------------
 
-Gemma 4 12B IT, QAT w4a16 (compressed-tensors) - Google DeepMind
-  https://huggingface.co/google/gemma-4-12B-it-qat-w4a16-ct
-  License: Apache License 2.0 (https://ai.google.dev/gemma/docs/gemma_4_license)
-  Speakrail's LoRA adapter and its 22 added token embeddings are trained on top
-  of this model.
-
-Voxtral Mini 4B Realtime (2602) - Mistral AI
+Voxtral Mini 4B Realtime, by Mistral AI. Apache License 2.0.
   https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602
-  License: Apache License 2.0
-  Used in the q8_0 GGUF conversion published by the audio.cpp project
-  (https://huggingface.co/audio-cpp/audio.cpp-gguf), unmodified.
-  Speakrail's turn-taking head is trained on this model's frozen hidden states.
+  Speakrail adds its own turn-taking head and uses the quantized conversion published by the audio.cpp project.
 
-Breeze TTS 2 - BreezeBlue
-  https://github.com/breezeblue-ai/breeze-tts
-  Source code: Apache License 2.0.
-  Model weights, derivative models and generated audio: BreezeBlue Research and
-  Non-Commercial License. Speech synthesized by Speakrail's default voice is
-  therefore for research and non-commercial use only.
-  Served from Speakrail's fork, https://github.com/speakrail/breeze-tts (branch
-  speakrail: int8 serving, a slim CUDA-graph profile and a disconnect fix), built
-  from source as a container image.
-  The default voice reference, app/voices/female_a.wav, was generated with Breeze
-  TTS 2's voice design (no real speaker) and is covered by the same license.
+Gemma 4 E4B, by Google. Apache License 2.0.
+  https://huggingface.co/google/gemma-4-E4B-it
+  https://ai.google.dev/gemma/docs/gemma_4_license
+  Speakrail uses a quantized checkpoint with its own adapter for turn-taking.
 
---------------------------------------------------------------------------------
-Software
---------------------------------------------------------------------------------
+Pocket TTS, by Kyutai. Creative Commons Attribution 4.0 (CC-BY-4.0).
+  https://huggingface.co/kyutai/pocket-tts
+  Speakrail uses the GGUF conversion, with most weights quantized to 8 bits, published by the audio.cpp project.
+  https://huggingface.co/audio-cpp/audio.cpp-gguf
+  Kyutai's terms prohibit illegal, harmful, deceptive, fraudulent or unauthorized use, including voice impersonation or
+  cloning without explicit and lawful consent; misinformation or deception, such as fake news, fraudulent calls, or
+  presenting generated content as genuine recordings of real people or events; and generating unlawful, harmful,
+  libelous, abusive, harassing, discriminatory, hateful or privacy-invasive content. Speakrail can clone a voice from
+  an audio file, and these terms apply to that. See "Prohibited use" on the model card.
 
-audio.cpp (speech recognition server) - Speakrail fork
-  https://github.com/speakrail/audio.cpp
-  Forked from audio.cpp by ShugoAI LLC: https://github.com/0xShug0/audio.cpp
-  Copyright 2026 ShugoAI LLC. License: Apache License 2.0.
-  The fork (branch turn-head) adds the turn-taking head and peek decoding.
-  Built from source as a container image; no audio.cpp code is included in
-  this repository. It bundles ggml (MIT), SentencePiece (Apache License 2.0),
-  cJSON (MIT) and other libraries under their own licenses; see the fork.
+Breeze TTS 2, by BreezeBlue (Resonia, Inc.). BreezeBlue Research and Non-Commercial License.
+  https://huggingface.co/BreezeBlue/Breeze-TTS-2
+  The weights and the audio they generate are for research and non-commercial use only; commercial use needs a separate license from BreezeBlue.
 
-vLLM - https://github.com/vllm-project/vllm
-  License: Apache License 2.0. Used unmodified as a container image.
+Other files
 
-Onest (font of the web UI) - https://fonts.google.com/specimen/Onest
-  Loaded by the browser from Google Fonts; no font files are included in this
-  repository.
+The Kripa and Lilex fonts in the web UI: SIL Open Font License 1.1 (src/speakrail/harness/web/fonts/OFL.txt).
 
-SearXNG (optional web search) - https://github.com/searxng/searxng
-  License: GNU Affero General Public License v3.0. Used unmodified as a
-  separate container image; no SearXNG code is included in this repository.
-
---------------------------------------------------------------------------------
-Data services
---------------------------------------------------------------------------------
-
-Open-Meteo (weather tool) - https://open-meteo.com
-  Weather data by Open-Meteo.com, licensed under CC BY 4.0.
+src/speakrail/harness/voices/female_a.wav and its transcript: audio generated with Breeze TTS 2, so its license applies.

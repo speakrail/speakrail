@@ -1,0 +1,83 @@
+"""What machine this is. Each folder in platforms/ knows how to recognise its own hardware."""
+from __future__ import annotations
+
+import importlib.util
+import shutil
+import subprocess
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+from .config import CFG, REPO_ROOT
+
+
+@dataclass(frozen=True)
+class Hardware:
+    platform: str
+    name: str
+    memory_gib: float
+    free_memory_gib: float
+    memory_kind: str
+    reserve_gib: float
+    disk_free_gib: float = 0.0
+    wsl: bool = False
+    memory_pressure: str = "normal"      # normal, warn or critical; only platforms that have such a signal report anything else
+    idle_offload_min: float = 0.0
+
+    def describe(self) -> str:
+        wsl = ", under WSL2" if self.wsl else ""
+        return f"{self.name}, {self.memory_gib:.0f} GB {self.memory_kind} memory{wsl}"
+
+
+def platform_dirs(paths=None) -> list[Path]:
+    roots = paths if paths is not None else [REPO_ROOT / "platforms", Path(CFG.home) / "platforms"]
+    return [d for root in roots if Path(root).is_dir() for d in sorted(Path(root).iterdir()) if (d / "platform.toml").exists()]
+
+
+def _load_detect(folder: Path):
+    spec = importlib.util.spec_from_file_location(f"speakrail_platform_{folder.name}", folder / "detect.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def platform_module(platform: str, paths=None):
+    """the detect.py of a named platform, or None"""
+    for folder in platform_dirs(paths):
+        if tomllib.loads((folder / "platform.toml").read_text())["name"] == platform:
+            return _load_detect(folder)
+    return None
+
+
+def detect(paths=None) -> Hardware | None:
+    """the first platform that recognises this machine, or None"""
+    for folder in platform_dirs(paths):
+        info = tomllib.loads((folder / "platform.toml").read_text())
+        found = _load_detect(folder).detect()
+        if found:
+            home = Path(CFG.home)
+            probe = next((p for p in (home, *home.parents) if p.exists()), Path("/"))
+            return Hardware(platform=info["name"], name=found["name"], memory_gib=found["memory_gib"], free_memory_gib=found["free_memory_gib"],
+                            memory_kind=info["memory_kind"], reserve_gib=float(info["reserve_gib"]), disk_free_gib=shutil.disk_usage(probe).free / 2**30,
+                            wsl=bool(found.get("wsl")), memory_pressure=found.get("memory_pressure", "normal"), idle_offload_min=float(info.get("idle_offload_min", 0)))
+    return None
+
+
+def idle_minutes(hw: Hardware) -> float:
+    return CFG.idle_offload_min if CFG.idle_offload_min >= 0 else hw.idle_offload_min
+
+
+def _rss_by_pid() -> dict[int, float]:
+    out = subprocess.run(["ps", "-axo", "pid=,rss="], capture_output=True, text=True, timeout=10).stdout
+    return {int(a): int(b) / 2**20 for a, b in (line.split() for line in out.splitlines())}
+
+
+def engine_memory(groups: dict[str, list[int]], platform: str, paths=None) -> dict[str, float]:
+    """name -> GiB held by these process groups. A platform's detect.py can offer memory_by_pid() where RSS misses memory that counts."""
+    by_pid = getattr(platform_module(platform, paths), "memory_by_pid", _rss_by_pid)()
+    out = subprocess.run(["ps", "-axo", "pid=,pgid="], capture_output=True, text=True, timeout=10).stdout
+    members: dict[int, list[int]] = {}
+    for line in out.splitlines():
+        pid, pgid = line.split()
+        members.setdefault(int(pgid), []).append(int(pid))
+    return {name: sum(by_pid.get(p, 0.0) for leader in leaders for p in members.get(leader, [leader])) for name, leaders in groups.items()}
