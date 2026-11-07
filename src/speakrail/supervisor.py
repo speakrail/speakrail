@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -22,7 +23,7 @@ from typing import Callable
 from . import containers
 from .config import CFG
 from .contracts import ROLES
-from .manifest import Engine, render, values_for
+from .manifest import Engine, ports_of, render, values_for
 
 STOPPED, STARTING, READY, FAILED = "stopped", "starting", "ready", "failed"
 SECRET_ENV = re.compile(r"(_API_KEY|_TOKEN|_SECRET|_ACCESS_KEY)$|^(HF_TOKEN|ANTHROPIC_|OPENAI_)", re.I)   # engines don't get the user's keys
@@ -37,6 +38,40 @@ def port_free(port: int, host: str = "127.0.0.1") -> bool:
     with socket.socket() as s:
         s.settimeout(0.2)
         return s.connect_ex((host, port)) != 0
+
+
+def who_uses(port: int) -> str:
+    """the program listening on a local port, as "name (pid N)", or "" when the system won't say"""
+    try:
+        if shutil.which("lsof"):
+            out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fpc"], capture_output=True, text=True, timeout=5).stdout
+            pid = next((x[1:] for x in out.splitlines() if x.startswith("p")), "")
+            name = next((x[1:] for x in out.splitlines() if x.startswith("c")), "")
+            if name:
+                return f"{name} (pid {pid})"
+        if shutil.which("ss"):
+            out = subprocess.run(["ss", "-ltnpH", f"sport = :{port}"], capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r'users:\(\("([^"]+)",pid=(\d+)', out)
+            if m:
+                return f"{m[1]} (pid {m[2]})"
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
+def ui_port_taken(port: int) -> str:
+    who = who_uses(port)
+    free = next((p for p in range(port + 100, port + 200) if port_free(p)), port + 100)
+    return (f"The page needs port {port}, and {who or 'another program'} is already using it. Either close that program, "
+            f"or start Speakrail on a free port: UI_PORT={free} speakrail start")
+
+
+def port_taken(engine_id: str, name: str, port: int) -> str:
+    """what to say when an engine's port is taken: who has it, and the two ways out"""
+    who = who_uses(port)
+    free = next((p for p in range(port + 100, port + 200) if port_free(p)), port + 100)
+    return (f"{engine_id} needs port {port}, and {who or 'another program'} is already using it. Either close that program, "
+            f"or move this engine to a free port: speakrail start --param {engine_id}:port_{name}={free}")
 
 
 def check_health(target: str, timeout: float = 1.0) -> bool:
@@ -109,21 +144,22 @@ class Supervisor:
                 raise EngineError(f"{engine.id} is already {prev.state}")
         if not engine.runs_on():
             raise EngineError(f"{engine.id} doesn't run on {sys.platform} (it runs on {', '.join(engine.platforms)})")
-        leftovers = [containers.name(engine.slug, p.name) for p in engine.processes if p.image]
-        for name in leftovers:                             # a run that was killed leaves its containers holding their ports and GPU memory
-            containers.remove(name)
-        if leftovers:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and not all(port_free(int(port)) for port in engine.ports.values()):
-                time.sleep(0.1)
-        for name, port in engine.ports.items():
-            if not port_free(int(port)):
-                raise EngineError(f"{engine.id}: port {port} ({name}) is already in use")
         run_dir = self.home / "run" / engine.slug
         log_dir = self.home / "logs" / engine.slug
         run_dir.mkdir(parents=True, exist_ok=True)
         log_dir.mkdir(parents=True, exist_ok=True)
         values = values_for(engine, self.home, self.models, run_dir, params, python)
+        ports = ports_of(engine, values)
+        leftovers = [containers.name(engine.slug, p.name) for p in engine.processes if p.image]
+        for name in leftovers:                             # a run that was killed leaves its containers holding their ports and GPU memory
+            containers.remove(name)
+        if leftovers:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not all(port_free(port) for port in ports.values()):
+                time.sleep(0.1)
+        for name, port in ports.items():
+            if not port_free(port):
+                raise EngineError(port_taken(engine.id, name, port))
         if engine.python and not Path(values["python"]).exists():
             raise EngineError(f"{engine.id} isn't installed: no environment at {values['python']} (speakrail engine install {engine.id})")
         missing = [p for p in (render(n, values, engine.id) for n in engine.needs) if not Path(p).exists()]

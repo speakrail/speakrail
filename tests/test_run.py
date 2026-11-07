@@ -13,10 +13,9 @@ os.environ["SPEAKRAIL_HOME"] = HOME
 from speakrail.supervisor import check_health, port_free
 from test_stack_stub import talk
 
-UI = 8080
-PORTS = (UI, 18000, 18091, 18765)
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1", "SPEAKRAIL_HOME": HOME, "UI_PORT": "18080"}
 UI = 18080
+PORTS = (UI, 18000, 18091, 18765)            # the stubs' and the test UI's: a real Speakrail on 8080 next to the tests doesn't count
 
 
 class Run:
@@ -153,7 +152,7 @@ def test_a_busy_ui_port_is_refused_before_loading_anything():
     r = Run("--no-bench")
     try:
         assert r.p.wait(timeout=20) == 2, r.text()[-400:]
-        assert "already in use" in r.text() and "[asr/stub]" not in r.text()
+        assert "already using it" in r.text() and "UI_PORT=" in r.text() and "[asr/stub]" not in r.text()
     finally:
         s.close()
 

@@ -24,7 +24,7 @@ from .hardware import detect, idle_minutes
 from .host import READY, Refused, Stack, serve_control
 from .manifest import discover, values_for
 from .resolver import ResolveError, discover_configs, explain, resolve, to_file
-from .supervisor import EngineError, Supervisor, check_health, port_free
+from .supervisor import EngineError, Supervisor, check_health, port_free, ui_port_taken
 
 
 def paths():
@@ -117,7 +117,7 @@ def main(args) -> int:
         say(problem)
         return 2
     if not port_free(CFG.ui_port):
-        say(f"Port {CFG.ui_port} is already in use. Pick another with UI_PORT, or stop what's using it.")
+        say(ui_port_taken(CFG.ui_port))
         return 2
     stop = threading.Event()
     stack = None

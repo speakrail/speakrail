@@ -162,11 +162,28 @@ def test_a_busy_port_is_refused():
     try:
         sup.start(STUBS[2])
     except EngineError as e:
-        assert "already in use" in str(e)
+        msg = str(e)
+        assert "already using it" in msg and "close that program" in msg, msg
+        assert f"--param {STUBS[2].id}:port_main=" in msg, "it names a free port to move to"
+        moved = int(re.search(r"port_main=(\d+)", msg)[1])
+        r = sup.start(STUBS[2], {"port_main": str(moved)})        # and that works
+        assert r.state == READY and str(moved) in sup.url(STUBS[2].id), sup.url(STUBS[2].id)
         return
     finally:
         s.close(); sup.close()
     raise AssertionError("started on a busy port")
+
+
+def test_a_port_is_overridden_like_a_param():
+    e = STUBS[2]
+    v = values_for(e, Path(TMP), Path(TMP), Path(TMP), {"port_main": "18555"})
+    assert v["port_main"] == "18555" and "18555" in render(e.url, v, e.id)
+    for bad in ({"port_main": "http"}, {"port_main": "70000"}, {"port_nope": "1"}):
+        try:
+            values_for(e, Path(TMP), Path(TMP), Path(TMP), bad)
+            raise AssertionError(f"accepted {bad}")
+        except ManifestError:
+            pass
 
 
 def test_a_process_dying_during_startup_fails_and_cleans_up():

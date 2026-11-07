@@ -199,17 +199,27 @@ def render(text: str, values: dict, where: str = "") -> str:
         raise ManifestError(f"{where}: bad template {text!r}: {e}") from None
 
 
+def ports_of(engine: Engine, values: dict) -> dict[str, int]:
+    """the ports this start uses: the manifest's, or the ones a config or --param moved"""
+    return {k: int(values[f"port_{k}"]) for k in engine.ports}
+
+
 def values_for(engine: Engine, home: Path, models: Path, run_dir: Path, overrides: dict | None = None, python: str | None = None) -> dict:
-    """everything a manifest can refer to. Params may refer to the built-in variables and to each other (in file order)."""
-    if overrides and (unknown := set(overrides) - set(engine.params)):
-        raise ManifestError(f"{engine.id}: unknown params {sorted(unknown)}; known: {sorted(engine.params)}")
+    """everything a manifest can refer to. Params may refer to the built-in variables and to each other (in file order). A port is
+    overridden like a param, by its variable's name: --param asr/audiocpp:port_backend=8190 moves [ports] backend."""
+    port_keys = {f"port_{k}" for k in engine.ports}
+    if overrides and (unknown := set(overrides) - set(engine.params) - port_keys):
+        raise ManifestError(f"{engine.id}: unknown params {sorted(unknown)}; known: {sorted(engine.params)}, and its ports as {sorted(port_keys)}")
     if engine.python:
         py = python or str(engine.env_dir(home) / "bin" / "python")
     else:
         py = python or sys.executable
     v = {"home": str(home), "models": str(models), "run": str(run_dir), "engine_dir": str(engine.dir), "python": py}
     for k, port in engine.ports.items():
-        v[f"port_{k}"] = str(port)
+        given = (overrides or {}).get(f"port_{k}", port)
+        if not (str(given).isdigit() and 1 <= int(given) <= 65535):
+            raise ManifestError(f"{engine.id}: port_{k} must be a port number, got {given!r}")
+        v[f"port_{k}"] = str(int(given))
     for k, default in engine.params.items():
         v[k] = render(str((overrides or {}).get(k, default)), v, f"{engine.id} param {k}")
     return v

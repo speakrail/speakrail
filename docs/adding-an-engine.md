@@ -32,7 +32,7 @@ startup_timeout_s = 120
 needs = ["${models}/myvoice/model.bin"]  # files that must exist first; `doctor` checks them too
 
 [ports]
-main = 8095                             # each port becomes ${port_<name>}
+main = 8095                             # each port becomes ${port_<name>}; --param tts/myvoice:port_main=8195 moves it
 
 [params]                                # defaults; a config can change any of them
 model_dir = "${models}/myvoice"

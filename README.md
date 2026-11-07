@@ -77,7 +77,7 @@ ssh -L 8080:localhost:8080 your-gpu-box
 
 **`speakrail start` stops right away:** `speakrail doctor` says what is missing, with the command that fixes it. `speakrail logs` shows the service's log, and `speakrail logs asr-audiocpp-docker` (or another engine) one engine's.
 
-**The UI doesn't open:** the port is probably taken by another program. Pick a free one: `UI_PORT=8085 speakrail start`.
+**A port is taken by another program:** Speakrail says which program, and the command that moves its part to a free port, for example `UI_PORT=8180 speakrail start` for the page, or `speakrail start --param asr/audiocpp:port_backend=8190` for an engine. Or close that program. `speakrail doctor` checks every port before you start.
 
 ## Updating and uninstalling
 

@@ -7,10 +7,10 @@ from pathlib import Path
 from . import containers
 from .config import CFG
 from .contracts import REQUIRED
-from .manifest import render, values_for
+from .manifest import ports_of, render, values_for
 from .resolver import ResolveError, explain
 from .run import missing_voice, paths, setup
-from .supervisor import port_free
+from .supervisor import port_free, port_taken, ui_port_taken
 from .ui import say
 
 OK, WARN, FAIL = "ok", "warn", "FAIL"
@@ -51,9 +51,9 @@ def checks(args) -> list[tuple[str, str, str]]:
             if not Path(path).exists():
                 missing_models = True
                 out.append((FAIL, f"{e.id}: missing {path}", "The installer fetches this"))
-        for port in e.ports.values():
-            if not port_free(int(port)):
-                out.append((FAIL, f"{e.id}: port {port} is in use", "Stop what's using it"))
+        for name, port in ports_of(e, values).items():
+            if not port_free(port):
+                out.append((FAIL, f"{e.id}: port {port} is in use", port_taken(e.id, name, port)))
         for cap in REQUIRED.get(role, ()):
             if cap not in e.capabilities:
                 out.append((FAIL, f"{e.id}: doesn't provide {cap}", "This engine can't run with the harness"))
@@ -72,7 +72,7 @@ def checks(args) -> list[tuple[str, str, str]]:
     else:
         out.append((OK, f"{hw.disk_free_gib:.0f} GB disk free", ""))
     if not port_free(CFG.ui_port):
-        out.append((FAIL, f"UI port {CFG.ui_port} is in use", "Pick another with UI_PORT"))
+        out.append((FAIL, f"UI port {CFG.ui_port} is in use", ui_port_taken(CFG.ui_port)))
     for w in r.warnings:
         out.append((WARN, w, ""))
     return out
