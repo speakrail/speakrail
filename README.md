@@ -17,15 +17,15 @@ Speakrail listens while it talks. You can interrupt it, say "mm-hmm" without sto
 ```
 mic ─► Voxtral Mini 4B Realtime (audio.cpp) + turn-taking head ─► words + "is the user done?" every 80 ms
                                                                          │
-                       Gemma 4 12B + Speakrail LoRA ◄────────────────────┘
+              Gemma 4 12B or E4B + Speakrail LoRA ◄──────────────────────┘
                        one decision per event: speak / listen / interrupt / yield / interject
                                    │
                                    ▼
                        Breeze TTS 2 or Pocket TTS ─► speaker
 ```
 
-- **Turn-taking head:** a small head on Voxtral's hidden states tells, every 80 ms, whether you're speaking, finished, pausing mid-thought, or just backchanneling. [Model card](https://huggingface.co/speakrail/Voxtral-Mini-4B-Realtime-2602-TurnHead).
-- **Turn-taking LLM:** Gemma 4 12B with a LoRA that reads your words as they arrive and makes every turn-taking decision itself, in one token per event (~60 ms). [Model card](https://huggingface.co/speakrail/gemma-4-12B-it-qat-Speakrail).
+- **Turn-taking head:** a small head on Voxtral's hidden states tells, every 80 ms, whether you're speaking, finished, pausing mid-thought, or just backchanneling, and whether you're about to finish. [Weights](https://huggingface.co/speakrail/speakrail-voxtral-realtime-2602-turnhead-2611).
+- **Turn-taking LLM:** Gemma 4 with a LoRA that reads your words as they arrive and makes every turn-taking decision itself, in one token per event (~60 ms): the 12B on 24 GB GPUs ([model card](https://huggingface.co/speakrail/gemma-4-12B-it-qat-Speakrail)), E4B, which we call the 4B, on 16 GB GPUs and Macs ([model card](https://huggingface.co/speakrail/gemma-4-E4B-it-qat-Speakrail-181026)).
 - **Peek and speculation:** when the head thinks you're done, the recognizer's last words are drained early and the reply starts before the turn is confirmed, so the answer is ready the moment you stop.
 - **Listening notes:** while you talk, the base model takes notes on what you want, so long or corrected requests are answered correctly.
 - **Tools:** weather, timers, notes, lists, calculator, unit conversion, optional web search and an optional larger model for hard questions.
@@ -38,11 +38,11 @@ mic ─► Voxtral Mini 4B Realtime (audio.cpp) + turn-taking head ─► words 
 
 ### Conversational dynamics
 
-Pause handling, turn-taking, interruptions and backchannels, scored with the Artificial Analysis formula on Full-Duplex-Bench v1.0 and v1.5: 94.0, the top open-weights score.
+Pause handling, turn-taking, interruptions and backchannels, scored with the Artificial Analysis formula on Full-Duplex-Bench v1.0 and v1.5: 93.4 for the 12B, the top open-weights score, and 88.0 for the 4B.
 
 ![Conversational dynamics](docs/charts/aa_conversational_dynamics.png)
 
-Latency on real recorded conversations: the reply reaches your ear about 0.7-0.8 s after your last word (median).
+Latency on real recorded conversations, from your last word to the reply reaching your ear (median): 0.74 s on the 24 GB setup (6 recordings, 66 replies) and 0.54 s on the 16 GB setup (2 recordings, 12 replies), both on an RTX 4090. Every setup's numbers are in [configs/](configs/README.md).
 
 ## Prerequisites
 
