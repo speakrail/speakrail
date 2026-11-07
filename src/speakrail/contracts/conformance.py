@@ -119,7 +119,7 @@ async def check_llm(url: str, capabilities, lora="speakrail", base="speakrail-ba
         async def errors():
             st, _ = await _post(http, url, {**decide, "model": "no-such-model", "prompt": PROMPT, "allowed_token_ids": DECISIONS})
             c.add("unknown model is an error", 400 <= st < 500, f"status {st}")
-            st, _ = await _post(http, url, {"model": lora, "prompt": PROMPT * 2000, "max_tokens": 1, "temperature": 0})
+            st, _ = await _post(http, url, {"model": lora, "prompt": PROMPT * 5000, "max_tokens": 1, "temperature": 0})   # 320k tokens: past any context a config sets (Gemma 4 stops at 262k)
             c.add("an over-long prompt is an error", 400 <= st < 500, f"status {st}")
 
         for name, fn in (("completion", token_ids), ("allowed", allowed), ("eos decision", eos_decision), ("logit_bias", bias), ("stop", stop), ("stream", stream), ("errors", errors)):

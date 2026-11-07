@@ -1,0 +1,43 @@
+{
+ "tape": "backchannels",
+ "voice": "eve",
+ "seconds": 24.91,
+ "speech": [
+  [
+   1.5,
+   3.55,
+   "Can you give me five tips for sleeping better?"
+  ],
+  [
+   5.75,
+   6.18,
+   "Right."
+  ],
+  [
+   8.18,
+   8.6,
+   "Okay."
+  ],
+  [
+   18.6,
+   19.91,
+   "That's helpful, thanks."
+  ]
+ ],
+ "labels": [
+  {
+   "kind": "reply",
+   "at": 3.55,
+   "text": "Can you give me five tips for sleeping better?",
+   "within": 2.0
+  },
+  {
+   "kind": "backchannel",
+   "at": 5.75
+  },
+  {
+   "kind": "backchannel",
+   "at": 8.18
+  }
+ ]
+}

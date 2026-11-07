@@ -1,0 +1,64 @@
+{
+ "tape": "pauses",
+ "voice": "george",
+ "seconds": 30.05,
+ "speech": [
+  [
+   1.5,
+   2.44,
+   "Hey, quick question."
+  ],
+  [
+   7.44,
+   10.5,
+   "How many kilometers is twenty-six miles?"
+  ],
+  [
+   18.5,
+   22.05,
+   "And what is a hundred degrees Fahrenheit in Celsius?"
+  ]
+ ],
+ "labels": [
+  {
+   "kind": "reply",
+   "at": 2.44,
+   "text": "Hey, quick question.",
+   "within": 4.0
+  },
+  {
+   "kind": "hold",
+   "from": 8.68,
+   "to": 9.48
+  },
+  {
+   "kind": "reply",
+   "at": 10.5,
+   "text": "How many kilometers is twenty-six miles?",
+   "within": 5.0,
+   "contains_any": [
+    "41",
+    "42",
+    "forty-one",
+    "forty-two"
+   ]
+  },
+  {
+   "kind": "hold",
+   "from": 19.2,
+   "to": 20.0
+  },
+  {
+   "kind": "reply",
+   "at": 22.05,
+   "text": "And what is a hundred degrees Fahrenheit in Celsius?",
+   "within": 5.0,
+   "contains_any": [
+    "37",
+    "38",
+    "thirty-seven",
+    "thirty-eight"
+   ]
+  }
+ ]
+}

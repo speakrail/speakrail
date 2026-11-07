@@ -51,6 +51,7 @@ class SetupConfig:
     path: Path | None = None
     downloads: tuple = ()
     patches: tuple = ()
+    fidelity: dict = field(default_factory=dict)     # [fidelity]: reference = <name in verify/fidelity>, agree = the share of decisions that must match
 
 
 @dataclass
@@ -80,7 +81,7 @@ def load_config(path: Path) -> SetupConfig:
         raw = tomllib.loads(Path(path).read_text())
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"{where}: {e}") from e
-    known = {"name", "status", "description", "platform", "priority", "memory_peak_gib", "disk_gib", "engines", "harness", "params", "run", "evidence", "download", "patch"}
+    known = {"name", "status", "description", "platform", "priority", "memory_peak_gib", "disk_gib", "engines", "harness", "params", "run", "evidence", "download", "patch", "fidelity"}
     if extra := set(raw) - known:
         raise ConfigError(f"{where}: unknown keys {sorted(extra)}")
     for key in ("name", "status", "platform", "memory_peak_gib", "engines"):
@@ -100,6 +101,13 @@ def load_config(path: Path) -> SetupConfig:
     for d in raw.get("patch", []):
         if set(d) != {"weights", "rows", "sha256"}:
             raise ConfigError(f"{where}: a [[patch]] needs exactly weights, rows and sha256")
+    fid = raw.get("fidelity", {})
+    if extra := set(fid) - {"reference", "agree"}:
+        raise ConfigError(f"{where}: [fidelity] has unknown keys {sorted(extra)}; it takes reference and agree")
+    if "reference" in fid and not isinstance(fid["reference"], str):
+        raise ConfigError(f"{where}: [fidelity] reference is the name of a file in verify/fidelity, like \"nvidia-12b-24gb\"")
+    if "agree" in fid and not (isinstance(fid["agree"], (int, float)) and 0.5 <= fid["agree"] <= 1.0):
+        raise ConfigError(f"{where}: [fidelity] agree is the share of decisions that must match, between 0.5 and 1.0")
     harness = raw.get("harness", {})
     for key, value in harness.items():
         if key not in HARNESS_FIELDS:
@@ -110,7 +118,8 @@ def load_config(path: Path) -> SetupConfig:
     return SetupConfig(name=raw["name"], status=raw["status"], description=raw.get("description", ""), platform=raw["platform"], priority=int(raw.get("priority", 0)),
                        memory_peak_gib=float(raw["memory_peak_gib"]), disk_gib=float(raw.get("disk_gib", 0)), engines=dict(raw["engines"]), harness=dict(harness),
                        params={k: dict(v) for k, v in raw.get("params", {}).items()}, phrase_cache=bool(raw.get("run", {}).get("phrase_cache", True)),
-                       evidence=dict(raw.get("evidence", {})), path=Path(path), downloads=tuple(raw.get("download", [])), patches=tuple(raw.get("patch", [])))
+                       evidence=dict(raw.get("evidence", {})), path=Path(path), downloads=tuple(raw.get("download", [])), patches=tuple(raw.get("patch", [])),
+                       fidelity=dict(fid))
 
 
 def _check_type(key, value, where):

@@ -89,6 +89,10 @@ speakrail uninstall       # asks first; --keep-models leaves the models where th
 
 `speakrail status` says when a newer version is out; it asks GitHub at most once a day, and `SPEAKRAIL_UPDATE_CHECK=0` turns that off. `~/.speakrail/state.json` records what is installed: the commit of the code, the setup, and the repository and commit every model file came from. An update keeps the files and images the version before it used, so a rollback only downloads what the update replaced in place, and removes what neither of the two uses. It only ever removes files it downloaded itself.
 
+## Adding your own
+
+Engines and setups are files: [Adding an engine](docs/adding-an-engine.md) and [Adding a config](docs/adding-a-config.md) walk through both. `speakrail verify` starts a setup, plays five synthetic test conversations through it, and writes a report with this machine's details; `speakrail verify --quick` plays one, to check an install.
+
 ## Configuration
 
 Settings come from environment variables, or from `--set key=value` on `speakrail start`:

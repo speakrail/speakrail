@@ -1,0 +1,44 @@
+{
+ "tape": "interruption",
+ "voice": "michael",
+ "seconds": 23.56,
+ "speech": [
+  [
+   1.5,
+   3.62,
+   "Tell me about the history of the Roman Empire."
+  ],
+  [
+   6.62,
+   10.5,
+   "Sorry, wait. Actually, how many legs does a spider have?"
+  ],
+  [
+   17.5,
+   18.56,
+   "Got it, thanks."
+  ]
+ ],
+ "labels": [
+  {
+   "kind": "reply",
+   "at": 3.62,
+   "text": "Tell me about the history of the Roman Empire.",
+   "within": 3.0
+  },
+  {
+   "kind": "interrupt",
+   "at": 6.62
+  },
+  {
+   "kind": "reply",
+   "at": 10.5,
+   "text": "Sorry, wait. Actually, how many legs does a spider have?",
+   "within": 5.0,
+   "contains_any": [
+    "eight",
+    "8"
+   ]
+  }
+ ]
+}
