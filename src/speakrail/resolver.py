@@ -181,11 +181,20 @@ def _unusable(c: SetupConfig, hw: Hardware, engines: dict) -> str | None:
     return None
 
 
+def memory_use(c: SetupConfig, hw: Hardware) -> str:
+    """the most memory the config uses, out of this machine's, and what that leaves for everything else. It fits when what's left
+    is at least the platform's reserve (macOS and its apps share a Mac's memory; a GPU may also drive a display)."""
+    kind = "GPU memory" if hw.memory_kind == "dedicated" else "memory"
+    peak, total = c.memory_peak_gib, hw.memory_gib
+    left = total - peak
+    if left < 0:
+        return f"needs up to {peak:.1f} GB of {kind}, more than the {total:.0f} GB here"
+    text = f"needs up to {peak:.1f} GB of your {total:.0f} GB of {kind}, leaving {left:.1f} GB free"
+    return text + (f", too little for everything else on this machine (it should leave {hw.reserve_gib:.0f} GB)" if left < hw.reserve_gib else "")
+
+
 def _too_big(c: SetupConfig, hw: Hardware) -> str | None:
-    need = c.memory_peak_gib + hw.reserve_gib
-    if need > hw.memory_gib:
-        return f"needs {need:.1f} GB ({c.memory_peak_gib:.1f} peak + {hw.reserve_gib:.1f} kept free), this machine has {hw.memory_gib:.0f}"
-    return None
+    return memory_use(c, hw) if c.memory_peak_gib + hw.reserve_gib > hw.memory_gib else None
 
 
 def choose(configs: dict, hw: Hardware, engines: dict, pinned: str | None = None, force: bool = False) -> tuple[SetupConfig, str, list]:
@@ -326,8 +335,7 @@ def explain(r: Resolved) -> str:
     if c.evidence:
         ev = c.evidence
         out.append(f"          Tested on {ev.get('machine', '?')}, {ev.get('date', '?')}" + (f": last word to ear {ev['last_word_to_ear_ms']} ms" if ev.get("last_word_to_ear_ms") else ""))
-    fit = c.memory_peak_gib + hw.reserve_gib
-    out.append(f"Memory    {c.memory_peak_gib:.1f} GB peak + {hw.reserve_gib:.1f} GB kept free = {fit:.1f} of {hw.memory_gib:.0f} GB")
+    out.append(f"Memory    {memory_use(c, hw)}")
     out.append("Engines   " + ", ".join(f"{e.id}" for e in r.engines.values()))
     idle = idle_minutes(hw)
     out.append(f"Idle      {f'engines unload after {idle:g} min with no session, the next session loads them again' if idle else 'engines stay loaded'}")

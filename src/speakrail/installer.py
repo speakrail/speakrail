@@ -62,10 +62,8 @@ def licenses(config) -> str:
 
 
 def memory_line(hw, config) -> str:
-    need = config.memory_peak_gib + hw.reserve_gib
-    kind = "GPU memory" if hw.memory_kind == "dedicated" else "memory"
-    fit = "" if need <= hw.memory_gib else f": more than the {hw.memory_gib:.0f} GB here, so it may not start"
-    return f"needs {need:.1f} GB of {kind} ({config.memory_peak_gib:.1f} at its peak, {hw.reserve_gib:.1f} kept free){fit}"
+    from .resolver import memory_use
+    return memory_use(config, hw)
 
 
 def pick_config(hw, opts, ask=tty_ask):
@@ -88,7 +86,7 @@ def pick_config(hw, opts, ask=tty_ask):
             if o is None:
                 say(f"Pick a number from 1 to {len(opts)}, not {answer!r}.")
                 continue
-        if not o.fits and not ask(f"{o.config.name} needs {o.need_gib:.1f} GB and this machine has {hw.memory_gib:.0f}. Install it anyway? [y/N]: ").lower().startswith("y"):
+        if not o.fits and not ask(f"{o.config.name} {memory_line(hw, o.config)}. It may not start. Install it anyway? [y/N]: ").lower().startswith("y"):
             continue
         return o
 

@@ -89,6 +89,16 @@ speakrail uninstall       # asks first; --keep-models leaves the models where th
 
 `speakrail status` says when a newer version is out; it asks GitHub at most once a day, and `SPEAKRAIL_UPDATE_CHECK=0` turns that off. `~/.speakrail/state.json` records what is installed: the commit of the code, the setup, and the repository and commit every model file came from. An update keeps the files and images the version before it used, so a rollback only downloads what the update replaced in place, and removes what neither of the two uses. It only ever removes files it downloaded itself.
 
+## Using it from your own app
+
+Speakrail serves OpenAI's GPT-Live protocol on a WebSocket, `ws://127.0.0.1:8080/v1/live/sessions`, with the token from `~/.speakrail/config/api_token`. [examples/gpt_live_client.py](examples/gpt_live_client.py) is a complete client in one file: it streams audio in, prints both sides of the conversation, answers a tool call of its own, and saves the reply. With Speakrail running:
+
+```bash
+python examples/gpt_live_client.py --wav question.wav --out answer.wav
+```
+
+Turn-taking is Speakrail's own, so there is no turn detection to configure. `src/speakrail/gateway/live.py` lists what the protocol supports so far.
+
 ## Adding your own
 
 Engines and setups are files: [Adding an engine](docs/adding-an-engine.md) and [Adding a config](docs/adding-a-config.md) walk through both. `speakrail verify` starts a setup, plays five synthetic test conversations through it, and writes a report with this machine's details; `speakrail verify --quick` plays one, to check an install.

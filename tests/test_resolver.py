@@ -36,11 +36,11 @@ TABLE = [
     ("M5 Max 128 GB", mac(128, "Apple M5 Max"), "mac-e4b", None),
     ("M4 Pro 18 GB", mac(18), "mac-e4b", None),
     ("M4 16 GB", mac(16, "Apple M4"), "mac-e4b", None),
-    ("M2 8 GB", mac(8, "Apple M2"), None, "needs 14.7 GB"),
+    ("M2 8 GB", mac(8, "Apple M2"), None, "more than the 8 GB here"),
     ("RTX 4090, as nvidia-smi reports it", nvidia(23.99), "nvidia-12b-24gb", None),
     ("RTX 5090", nvidia(32, "NVIDIA GeForce RTX 5090"), "nvidia-12b-24gb", None),
     ("RTX 4080, as nvidia-smi reports it", nvidia(15.99, "NVIDIA GeForce RTX 4080"), "nvidia-e4b-16gb", None),
-    ("RTX 3060 12 GB", nvidia(12, "NVIDIA GeForce RTX 3060"), None, "needs 14.8 GB"),
+    ("RTX 3060 12 GB", nvidia(12, "NVIDIA GeForce RTX 3060"), None, "more than the 12 GB here"),
     ("unknown vendor", Hardware("rocm", "Radeon", 24, 24, "dedicated", 1.0, 200), None, "needs platform apple"),
 ]
 
@@ -82,6 +82,15 @@ def test_experimental_only_by_name():
     r = run(mac(), pinned="stub")
     assert r.config.name == "stub" and r.engines["llm"].id == "llm/stub"
     assert run(nvidia(), pinned="stub").config.name == "stub"          # platform "any"
+
+
+def test_memory_is_said_as_used_and_left():
+    from speakrail.resolver import memory_use
+    c = CONFIGS["mac-e4b"]
+    assert memory_use(c, mac(24)) == "needs up to 10.7 GB of your 24 GB of memory, leaving 13.3 GB free"
+    assert "leaving 3.3 GB free, too little" in memory_use(c, mac(14)), "fits in memory, but not with macOS beside it"
+    assert memory_use(c, mac(8)) == "needs up to 10.7 GB of memory, more than the 8 GB here"
+    assert "GPU memory" in memory_use(CONFIGS["nvidia-12b-24gb"], nvidia(23.99))
 
 
 def test_fidelity_table_is_checked():
@@ -275,7 +284,7 @@ def test_set_parsing():
 
 def test_explain_says_why():
     text = explain(run(mac()))
-    for part in ("mac-e4b", "best tested config", "Apple M4 Pro", "Tested on", "10.7 GB peak", "asr/audiocpp", "speculation", "from the config", "stub: experimental"):
+    for part in ("mac-e4b", "best tested config", "Apple M4 Pro", "Tested on", "needs up to 10.7 GB of your 24 GB", "asr/audiocpp", "speculation", "from the config", "stub: experimental"):
         assert part in text, (part, text)
 
 
