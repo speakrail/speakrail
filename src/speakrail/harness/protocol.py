@@ -30,7 +30,7 @@ import json, re
 from pathlib import Path
 
 HERE = Path(__file__).parent
-# tokenizer v1.2 (Gemma 4 + the 22 speakrail tokens), written by model-init next to the model
+# tokenizer v1.2 (Gemma 4 + the 22 speakrail tokens), which the installer downloads next to the model
 from ..config import CFG                                                            # noqa: E402
 TOKENIZER_DIR = Path(CFG.tokenizer_dir)
 from .tokens_v1 import IDS, TURN_CLOSE, TURN_OPEN, TOOL_RESPONSE_OPEN, sil_token   # noqa: E402

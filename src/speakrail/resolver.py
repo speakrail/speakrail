@@ -207,6 +207,31 @@ def choose(configs: dict, hw: Hardware, engines: dict, pinned: str | None = None
     return c, "the best tested config that fits this machine", rejected
 
 
+@dataclass
+class Option:
+    config: SetupConfig
+    need_gib: float           # its peak plus what this platform keeps free
+    fits: bool
+    recommended: bool         # what auto mode chooses here
+
+
+def options(configs: dict, hw: Hardware, engines: dict) -> list[Option]:
+    """every config written for this platform that could run here, for a person to pick from: the recommended one first, then the ones
+    that fit (tested before experimental), then the ones that need more memory than this machine has. Configs for any platform (the stub)
+    are for tests, so they aren't offered."""
+    try:
+        recommended = choose(configs, hw, engines)[0].name
+    except ResolveError:
+        recommended = None
+    out = []
+    for c in configs.values():
+        if c.platform != hw.platform or _unusable(c, hw, engines):
+            continue
+        need = c.memory_peak_gib + hw.reserve_gib
+        out.append(Option(c, need, need <= hw.memory_gib, c.name == recommended))
+    return sorted(out, key=lambda o: (not o.recommended, not o.fits, o.config.status != "tested", -o.config.priority, o.config.name))
+
+
 def resolve(configs: dict, engines: dict, hw: Hardware, *, pinned=None, sets=None, params=None, benchmark=None, force=False, models="", home="") -> Resolved:
     c, why, rejected = choose(configs, hw, engines, pinned, force)
     role_engines = {role: engines[eid] for role, eid in c.engines.items()}

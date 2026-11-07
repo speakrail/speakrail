@@ -19,7 +19,7 @@ def test_defaults_match_the_old_code():
                     ui_host="127.0.0.1", ui_port=8080, idle_offload_min=-1.0, host_url="", no_color=False, persona="nova", voice="", home_city="London", home_timezone="Europe/London",
                     silence_ms=1000, turn_tau=0.9, turn_k=3, spec=True, peek=True, peek_frames=0, ant4="", ant4_age_s=0.5, ant4_confirm_skip=True,
                     decision_bias="", reply_temp=0.0, reply_top_p=1.0, reply_top_k=0,
-                    notes=True, interject=True, tool_hold_ms=300, search="off", searxng_url="http://127.0.0.1:8888/search")
+                    notes=True, interject=True, tool_hold_ms=300, search="off", searxng_url="http://127.0.0.1:8888/search", update_check=True)
     for k, v in expected.items():
         assert getattr(c, k) == v, (k, getattr(c, k), v)
     assert set(expected) == {f for f in c.__dataclass_fields__}, "a setting has no expected default here"
@@ -96,7 +96,7 @@ def test_file_mistakes_are_errors():
 
 
 def test_only_config_reads_the_environment():
-    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py", "service.py", "installer.py"}   # the others hand their environment to child processes, or (installer) read which shell this is
+    allowed = {"config.py", "claude_tool.py", "supervisor.py", "run.py", "service.py", "installer.py", "lifecycle.py"}   # the others hand their environment to child processes, or (installer) read which shell this is and which branch install.sh fetched
     found = []
     for p in (ROOT / "src").rglob("*.py"):
         if p.name not in allowed and re.search(r"os\.environ|os\.getenv|getenv\(", p.read_text()):

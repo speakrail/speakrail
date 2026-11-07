@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Speakrail ASR: audiocpp_server (Voxtral Mini 4B Realtime q8_0 + turn head) behind the bridge (bridge.py).
 #
-#   MODELS_DIR       where model-init put the weights (default /models)
+#   MODELS_DIR       where the models are (default /models)
 #   ASR_GGUF         Voxtral GGUF       (default $MODELS_DIR/voxtral/voxtral-mini-4b-realtime-2602-q8_0.gguf)
 #   ASR_TURN_HEAD    turn head .vxth     (default $MODELS_DIR/turn_head/turn_head.vxth; its .json sidecar sits next to it)
 #   AUDIOCPP_BIN     audiocpp_server binary built from github.com/speakrail/audio.cpp, branch turn-head (default /app/audiocpp_server)

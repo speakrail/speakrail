@@ -16,4 +16,5 @@ Replies are greedy and decisions have no bias unless a config says otherwise. Th
 |---|---|---|---|---|
 | `mac-e4b` | Apple Silicon, 16 GB and up | E4B on MLX, Voxtral q4, Pocket on the CPU | 10.7 GB | 954/1351 ms |
 | `nvidia-12b-24gb` | NVIDIA, 24 GB and up | 12B, Voxtral q8, Breeze (non-commercial) | 22.9 GB | 736/1327 ms |
-| `nvidia-e4b-16gb` | NVIDIA, 16 GB and up | E4B with its per-layer embeddings in host memory, Voxtral q8, Pocket on the CPU | 11.9 GB | 537/1130 ms |
+| `nvidia-e4b-16gb` | NVIDIA, 16 GB and up | E4B with its per-layer embeddings in host memory and a 128k context, Voxtral q8, Pocket on the CPU | 13.8 GB | 537/1130 ms |
+| `nvidia-12b-24gb-highctx` (experimental) | NVIDIA, 24 GB and up | 12B with a 128k context, Voxtral q8, Pocket on the CPU: a worse voice for eight times the context | 22.7 GB | 576/1463 ms (2 recordings) |

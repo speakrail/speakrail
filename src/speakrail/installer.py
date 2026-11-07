@@ -61,8 +61,40 @@ def licenses(config) -> str:
     return LICENSES + ("\n" + BREEZE_LICENSE if "tts/breeze-docker" in config.engines.values() else "")
 
 
+def memory_line(hw, config) -> str:
+    need = config.memory_peak_gib + hw.reserve_gib
+    kind = "GPU memory" if hw.memory_kind == "dedicated" else "memory"
+    fit = "" if need <= hw.memory_gib else f": more than the {hw.memory_gib:.0f} GB here, so it may not start"
+    return f"needs {need:.1f} GB of {kind} ({config.memory_peak_gib:.1f} at its peak, {hw.reserve_gib:.1f} kept free){fit}"
+
+
+def pick_config(hw, opts, ask=tty_ask):
+    """-> the Option a person picks. Enter takes the recommended one, and any of them can be picked: one that needs more memory than
+    this machine has is confirmed first."""
+    default = next((i for i, o in enumerate(opts, 1) if o.recommended), None)
+    lines = [f"Setups for this machine ({hw.describe()}):"]
+    for i, o in enumerate(opts, 1):
+        tags = (["recommended"] if o.recommended else []) + ([] if o.config.status == "tested" else ["experimental"])
+        lines.append(f"\n  {i}) {o.config.name}{'  (' + ', '.join(tags) + ')' if tags else ''}\n     {o.config.description}\n     {memory_line(hw, o.config)}")
+    say("\n".join(lines) + "\n")
+    while True:
+        answer = ask(f"Which one? [{default}]: " if default else "Which one? ")
+        if not answer and default:
+            o = opts[default - 1]
+        elif answer.isdigit() and 1 <= int(answer) <= len(opts):
+            o = opts[int(answer) - 1]
+        else:
+            o = next((x for x in opts if x.config.name == answer), None)
+            if o is None:
+                say(f"Pick a number from 1 to {len(opts)}, not {answer!r}.")
+                continue
+        if not o.fits and not ask(f"{o.config.name} needs {o.need_gib:.1f} GB and this machine has {hw.memory_gib:.0f}. Install it anyway? [y/N]: ").lower().startswith("y"):
+            continue
+        return o
+
+
 def summary(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True, images: list[str] = ()) -> str:
-    lines = [f"Machine   {hw.describe()}", f"Config    {config.name} ({config.status}): {config.description}", f"Memory    the stack peaks at {config.memory_peak_gib:.1f} GB",
+    lines = [f"Machine   {hw.describe()}", f"Config    {config.name} ({config.status}): {config.description}", f"Memory    {memory_line(hw, config)}",
              f"Installs  to {home}", f"Models    to {c.models}: about {size_gb:.1f} GB to download"]
     if images:
         lines.append(f"Images    Docker pulls {', '.join(images)}, unless it has them")
@@ -143,8 +175,13 @@ def plan(downloads, models: Path) -> list[File]:
     return files
 
 
-def missing(files: list[File]) -> list[File]:
-    return [f for f in files if not (f.dest.exists() and f.dest.stat().st_size == f.size)]
+def missing(files: list[File], recorded: dict | None = None) -> list[File]:
+    """not there, or not the right size, or there from another repo or commit than this config wants (`recorded`: what state.json
+    says each path holds), which the size alone can't tell"""
+    def other(f):
+        r = (recorded or {}).get(str(f.dest))
+        return r is not None and (r["repo"], r["revision"], r["path"]) != (f.repo, f.revision, f.path)
+    return [f for f in files if other(f) or not (f.dest.exists() and f.dest.stat().st_size == f.size)]
 
 
 def sha256_of(path: Path) -> str:
@@ -210,10 +247,11 @@ def download(url: str, dest: Path, size: int, sha256: str | None, retry_wait: fl
     log.unlink(missing_ok=True)
 
 
-def fetch(files: list[File]) -> None:
-    todo = missing(files)
+def fetch(files: list[File], recorded: dict | None = None) -> None:
+    todo = missing(files, recorded)
     for i, f in enumerate(todo, 1):
         say(f"[{i}/{len(todo)}] {f.dest.name}, {f.size / 1e9:.2f} GB" if f.size >= 1e7 else f"[{i}/{len(todo)}] {f.dest.name}")
+        f.dest.with_name(f.dest.name + ".speakrail-patched").unlink(missing_ok=True)     # a fresh copy has no trained rows in it yet
         download(f"{HUB}/{f.repo}/resolve/{f.revision}/{f.path}", f.dest, f.size, f.sha256)
 
 
@@ -330,14 +368,22 @@ def add_to_path(rc: Path, bin_dir: Path) -> bool:
 
 
 # ---------------------------------------------------------------------- the whole thing
-def main(a) -> int:
-    from .resolver import ResolveError
+def main(a, ask=tty_ask) -> int:
+    from . import lifecycle
+    from .manifest import discover
+    from .resolver import ResolveError, discover_configs, options
     from .run import setup
     from .supervisor import EngineError, images as engine_images, install as install_env
     home = Path(CFG.home)
     hw = detect()
+    name, force, picked = a.config, getattr(a, "force", False), None
     try:
-        resolved, _, _ = setup(argparse.Namespace(config=a.config, set=None, param=None, force=False))
+        if not a.config and not a.yes and hw is not None:
+            opts = options(discover_configs(home=home), hw, discover())
+            if opts:
+                picked = pick_config(hw, opts, ask)
+                name, force = picked.config.name, not picked.fits
+        resolved, _, _ = setup(argparse.Namespace(config=name, set=None, param=None, force=force, use_installed=picked is None))
     except (ResolveError, ValueError) as e:
         say(str(e))
         return _cancel(home, a, 2)
@@ -349,13 +395,15 @@ def main(a) -> int:
     try:
         files = plan(config.downloads, choices.models)
         size_gb = sum(f.size for f in missing(files)) / 1e9
-        if not a.yes and not wizard(hw, config, home, choices, rc, size_gb, builds, images=images):
+        if not a.yes and not wizard(hw, config, home, choices, rc, size_gb, builds, ask=ask, images=images):
             say("Cancelled.")
             return _cancel(home, a, 0)
         if a.yes:
             say("\n" + summary(hw, config, home, choices, rc, size_gb, builds, images) + "\n\n" + licenses(config) + "\n")
         files = plan(config.downloads, choices.models)     # the models folder may have changed
-        need = sum(f.size for f in missing(files)) / 2**30
+        state = lifecycle.load_state(home)
+        recorded = lifecycle.recorded_files(state["current"], choices.models)
+        need = sum(f.size for f in missing(files, recorded)) / 2**30
         choices.models.mkdir(parents=True, exist_ok=True)
         free = shutil.disk_usage(choices.models).free / 2**30
         if need > free:
@@ -369,11 +417,22 @@ def main(a) -> int:
                 install_env(e, home, params=resolved.params.get(e.id))
         if builds:
             build_audiocpp(home, hw.platform)
-        if files:
+        if missing(files, recorded):
             say("Fetching the models. If this stops, run the installer again and it carries on.")
-            fetch(files)
+            fetch(files, recorded)
         for entry in config.patches:
             apply_patch(entry, choices.models)
+        branch = os.environ.get("SPEAKRAIL_BRANCH") or ((state["current"] or {}).get("app") or {}).get("branch") or "main"
+        if picked:                                   # picked from the list: kept for `speakrail start` unless it was the recommended one
+            pinned, forced = not picked.recommended, not picked.fits
+        elif a.config:
+            pinned, forced = not getattr(a, "chosen", False), force
+        else:                                        # --yes: the earlier pick, if there was one and it was used
+            earlier = lifecycle.installed_pin(home)
+            pinned, forced = (True, earlier[1]) if earlier and earlier[0] == config.name else (False, False)
+        now = lifecycle.snapshot(REPO_ROOT, branch, config.name, pinned, choices.models, files, config.patches, images, force=forced)
+        dropped = lifecycle.record(home, now)
+        lifecycle.prune(dropped, [now, lifecycle.load_state(home)["previous"]])
     except (InstallError, EngineError, subprocess.CalledProcessError, OSError) as e:
         say(f"{e}\nRun the installer again to carry on from here.")
         return 1

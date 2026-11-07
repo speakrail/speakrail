@@ -42,7 +42,7 @@ RULES = [
     (r"^(Warning:?)(\s+)(.*)$", lambda m: _c(YELLOW + BOLD, m[1]) + m[2] + _c(YELLOW, m[3])),                                   # sections of status and explain
     (r"^(Error)(\s+)(.*)$", lambda m: _c(RED + BOLD, m[1]) + m[2] + _c(RED, m[3])),
     (r"^(Engines)(\s+)(\w+)(.*)$", lambda m: _c(PINK + BOLD, m[1]) + m[2] + _state(m[3]) + m[4]),
-    (r"^(Machine|Config|Memory|Engines|Idle|Benchmark|Installs|Models|Build|Path)(\s+)(.*)$", lambda m: _c(PINK + BOLD, m[1]) + m[2] + m[3]),
+    (r"^(Machine|Config|Memory|Engines|Idle|Benchmark|Installs|Models|Images|Build|Path)(\s+)(.*)$", lambda m: _c(PINK + BOLD, m[1]) + m[2] + m[3]),
     (r"^(Features|Warnings|Not chosen|Licenses)$", lambda m: _c(PINK + BOLD, m[0])),
     (r"^(\s+)(Why:|Tested on)(.*)$", lambda m: _c(GREY, m[0])),
     (r"^(  .{20} )(on|off)(\s+)(.*)$", lambda m: m[1] + _c(GREEN if m[2] == "on" else GREY, m[2]) + m[3] + _c(GREY, m[4])),      # a feature

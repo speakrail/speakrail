@@ -10,13 +10,16 @@
 # What it needs from the machine besides the GPU: about 6 GB of RAM that stays pinned while it runs. Under WSL2 pinned memory is limited
 # (NVIDIA's WSL guide), and this hasn't been tried there yet.
 #
+# E4B keeps most of its layers to a 512-token window, so a long context costs little, and the space the offload frees also buys E4B's
+# longest context: 128k tokens, where the 24 GB setup has 16k. Speakrail has been measured with a 16k context; past that, how well it replies hasn't been measured.
+#
 # Replies are greedy and decisions have no bias, as this checkpoint was benchmarked.
 name = "nvidia-e4b-16gb"
 status = "tested"
 description = "Gemma E4B on vLLM with its per-layer embeddings in host memory, Voxtral q8, Pocket on the CPU, on one 16 GB NVIDIA GPU"
 platform = "cuda"
 priority = 10
-memory_peak_gib = 11.9    # all processes, measured with vLLM given the same GiB on a 24 GB card: 11.7 in a session, 11.84 for 2 s while vLLM loads. It leaves a desktop about 4 GB
+memory_peak_gib = 13.8    # all processes, measured with vLLM given the same GiB on a 24 GB card: audio.cpp 5.8, vLLM 7.7. It leaves a desktop about 2 GB
 disk_gib = 17.5          # the models; the images are another 35 GB
 
 [engines]
@@ -43,8 +46,8 @@ gguf_file = "voxtral-mini-4b-realtime-2602-q8_0.gguf"
 model_dir = "speakrail-e4b/model"
 adapter_dir = "speakrail-e4b/adapter"
 cpu_offload_gb = "6"     # the 5.25 GiB PLE table goes to pinned host memory: 5.2 GiB less on the GPU, no measurable cost to the time to first token
-max_model_len = "16384"
-gpu_share = "0.33"       # about 5.2 GiB of the 15.7 GiB vLLM sees on a 16 GB card: weights and graphs 4.5, KV cache 0.67 (1.4 x the context)
+max_model_len = "131072"  # 128k tokens, E4B's limit: about four hours of conversation at the 500 tokens a minute the test recordings grow by
+gpu_share = "0.46"       # about 7.2 GiB of the 15.7 GiB vLLM sees on a 16 GB card: weights and graphs 4.5, KV cache 2.71, which holds 163k tokens (1.25 x the context)
 
 [run]
 phrase_cache = true
@@ -109,5 +112,5 @@ sha256 = "93382a46d8276fc2aab461ad02a2dffc212b7e8a67923117e4667d7ca42ff897"
 [evidence]
 machine = "RTX 4090 with vLLM limited to what a 16 GB card gives it, Linux. Not yet on a real 16 GB card"
 date = "2026-11-07"
-tapes = "2 recordings, replayed through `speakrail run` at real time, from a first launch: 12 replies, no errors"
+tapes = "replayed through `speakrail run` at real time, from a first launch: 2 recordings at a 16k context (12 replies, 537/1130 ms) and 1 at this 128k context (5 replies, 427/537 ms), no errors"
 last_word_to_ear_ms = "537/1130"

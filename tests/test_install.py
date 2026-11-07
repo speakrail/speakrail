@@ -193,6 +193,22 @@ def test_the_wizard():
     assert wizard(MAC, _config(), Path("/h"), c, None, 12.3, ask=answers("2", "", "1")) is True, "no startup file to offer"
 
 
+def test_picking_a_setup():
+    from speakrail.installer import pick_config
+    from speakrail.manifest import discover
+    from speakrail.resolver import options
+    gpu16 = Hardware("cuda", "NVIDIA GeForce RTX 4080", 15.99, 15.0, "dedicated", 1.0)
+    opts = options(discover_configs([ROOT / "configs"]), gpu16, discover([ROOT / "engines"]))
+    assert opts[0].recommended and opts[0].config.name == "nvidia-e4b-16gb"
+    assert pick_config(gpu16, opts, ask=answers("")) is opts[0], "Enter takes the recommended one"
+    assert pick_config(gpu16, opts, ask=answers("what", "nvidia-e4b-16gb")) is opts[0], "a wrong answer asks again; a name works too"
+    big = next(o for o in opts if o.config.name == "nvidia-12b-24gb")
+    assert not big.fits
+    n = opts.index(big) + 1
+    assert pick_config(gpu16, opts, ask=answers(str(n), "n", "1")) is opts[0], "one that doesn't fit is confirmed first; no means pick again"
+    assert pick_config(gpu16, opts, ask=answers(str(n), "y")) is big, "and the user can pick it anyway"
+
+
 def test_path_is_one_marked_line():
     with tempfile.TemporaryDirectory() as d:
         rc = Path(d, ".zshrc"); rc.write_text("alias x=y")

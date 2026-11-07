@@ -66,6 +66,7 @@ class Config:
     tool_hold_ms: int = 300
     search: str = "off"
     searxng_url: str = "http://127.0.0.1:8888/search"
+    update_check: bool = True        # `speakrail status` says when a newer version is out, asking at most once a day
 
     @property
     def ant4_triggers(self) -> list[tuple[int, float]]:
@@ -98,7 +99,7 @@ ENV = {
     "silence_ms": ("SILENCE_MS", int), "turn_tau": ("TURN_TAU", float), "spec": ("SPEC", _on_if_1),
     "peek": ("PEEK", _off_if_0), "ant4": ("ANT4", str), "ant4_age_s": ("ANT4_AGE_S", float), "ant4_confirm_skip": ("ANT4_CONFIRM_SKIP", _on_if_1),
     "notes": ("NOTES", _on_if_1), "interject": ("INTERJECT", _off_if_0), "search": ("SEARCH", str),
-    "searxng_url": ("SEARXNG_URL", str),
+    "searxng_url": ("SEARXNG_URL", str), "update_check": ("SPEAKRAIL_UPDATE_CHECK", _off_if_0),
 }
 
 

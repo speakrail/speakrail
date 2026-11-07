@@ -178,14 +178,20 @@ def describe(s: dict) -> list[str]:
 
 
 def status_main(_) -> int:
+    from .lifecycle import update_notice
     info = find()
     if not info:
         say("Not running")
-        return NOT_RUNNING
-    _, s = call(info, "GET", "/status?memory=1")
-    say(f"Running (pid {info['pid']}): {info['url']}")
-    say("\n".join(describe(s)))
-    return 0
+        code = NOT_RUNNING
+    else:
+        _, s = call(info, "GET", "/status?memory=1")
+        say(f"Running (pid {info['pid']}): {info['url']}")
+        say("\n".join(describe(s)))
+        code = 0
+    notice = update_notice(home())
+    if notice:
+        say(notice)
+    return code
 
 
 def load_main(a) -> int:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Speakrail TTS: the Breeze TTS 2 streaming API (POST /v1/audio/speech) on the slim profile.
 #
-#   MODELS_DIR / BREEZE_MODEL   weights from model-init (default $MODELS_DIR/breeze-tts-2)
+#   MODELS_DIR / BREEZE_MODEL   where the models are (default $MODELS_DIR/breeze-tts-2)
 #   TTS_HOST / TTS_PORT         where the API listens (default 0.0.0.0:7860)
 #   BREEZE_INT8                 int8 weight-only parts (default backbone,text_encoder,depth; empty = bf16)
 #   BREEZE_FAST_CONFIG          CUDA-graph profile (default configs/slim.json)

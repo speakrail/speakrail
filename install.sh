@@ -7,7 +7,7 @@
 # --yes                no questions
 # --home DIR           install there instead of ~/.speakrail (or set SPEAKRAIL_HOME)
 # --models DIR         put the models there
-# --config NAME        install this config instead of choosing one
+# --config NAME        install this config instead of picking one from the list
 # --no-modify-path     don't add speakrail to your shell's PATH
 # --source DIR         install this checkout instead of downloading one
 # SPEAKRAIL_BRANCH     the branch to download, main by default

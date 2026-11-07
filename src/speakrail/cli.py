@@ -1,4 +1,4 @@
-"""speakrail run | start | stop | status | logs | load | offload | config | doctor | bench | engine"""
+"""speakrail run | start | stop | status | logs | load | offload | config | doctor | bench | engine | install | update | rollback | uninstall"""
 from __future__ import annotations
 
 import argparse
@@ -172,10 +172,20 @@ def main(argv=None) -> int:
     choices(top.add_parser("bench", help="measure this machine again"))
     inst = top.add_parser("install", help="what install.sh runs once Python is ready")
     inst.add_argument("--yes", action="store_true", help="no questions: the choices it would suggest")
-    inst.add_argument("--config", help="install this config instead of choosing one")
+    inst.add_argument("--config", help="install this config instead of picking one from the list")
+    inst.add_argument("--force", action="store_true", help="with --config: even if it needs more memory than this machine has")
     inst.add_argument("--models", help="where the models go, instead of <home>/models")
     inst.add_argument("--no-modify-path", action="store_true", help="don't add speakrail to your shell's PATH")
     inst.add_argument("--fresh", action="store_true", help=argparse.SUPPRESS)      # install.sh made the folder just now, so Cancel can take it away
+    inst.add_argument("--chosen", action="store_true", help=argparse.SUPPRESS)     # --config is what auto mode chose last time (a rollback), not the user's pick
+    upd = top.add_parser("update", help="install the newest version; the one before stays for speakrail rollback")
+    upd.add_argument("--yes", action="store_true", help="no questions")
+    upd.add_argument("--check", action="store_true", help="only say whether there is a newer version")
+    top.add_parser("rollback", help="go back to the version before the last update").add_argument("--yes", action="store_true", help="no questions")
+    un = top.add_parser("uninstall", help="remove Speakrail from this machine")
+    un.add_argument("--yes", action="store_true", help="no questions")
+    un.add_argument("--keep-models", action="store_true", help="leave the downloaded models where they are")
+    un.add_argument("--keep-images", action="store_true", help="leave the Docker images")
     a = p.parse_args(argv)
     try:
         if a.group == "engine":
@@ -183,6 +193,9 @@ def main(argv=None) -> int:
         if a.group == "install":
             from . import installer
             return installer.main(a)
+        if a.group in ("update", "rollback", "uninstall"):
+            from . import lifecycle
+            return {"update": lifecycle.update_main, "rollback": lifecycle.rollback_main, "uninstall": lifecycle.uninstall_main}[a.group](a)
         from . import doctor, run, service
         commands = {"start": service.start_main, "stop": service.stop_main, "status": service.status_main, "logs": service.logs_main, "load": service.load_main, "offload": service.offload_main}
         if a.group in commands:

@@ -47,8 +47,15 @@ def setup(args, benchmark=None):
         if not eq or not target:
             raise ResolveError(f"--param wants engine:key=value, like asr/audiocpp:threads=2; got {item!r}")
         params.setdefault(target, {})[key] = val
-    chosen = resolve(configs, engines, hw, pinned=getattr(args, "config", None), sets=parse_set(getattr(args, "set", None)), params=params, benchmark=benchmark,
-                     force=getattr(args, "force", False), models=models, home=home)
+    pinned, force, picked = getattr(args, "config", None), getattr(args, "force", False), None
+    if not pinned and getattr(args, "use_installed", True):
+        from .lifecycle import installed_pin
+        if (picked := installed_pin(home)) and picked[0] in configs:      # the setup picked at install, until --config or another install changes it
+            pinned, force = picked[0], force or picked[1]
+    chosen = resolve(configs, engines, hw, pinned=pinned, sets=parse_set(getattr(args, "set", None)), params=params, benchmark=benchmark,
+                     force=force, models=models, home=home)
+    if picked and pinned == picked[0]:
+        chosen.why_config = f"picked when installing ({chosen.config.status}); --config runs another, and speakrail install picks again"
     return chosen, configs, engines
 
 

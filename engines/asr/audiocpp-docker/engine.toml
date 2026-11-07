@@ -14,7 +14,7 @@ main = 8765
 backend = 8090
 
 [params]
-image = "speakrail/voxtral-stt-server:0.2.0"
+image = "speakrail/audiocpp-server:0.2.0"
 gguf_file = "voxtral-mini-4b-realtime-2602-q8_0.gguf"
 backend = "cuda"
 threads = "4"

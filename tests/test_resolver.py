@@ -40,7 +40,7 @@ TABLE = [
     ("RTX 4090, as nvidia-smi reports it", nvidia(23.99), "nvidia-12b-24gb", None),
     ("RTX 5090", nvidia(32, "NVIDIA GeForce RTX 5090"), "nvidia-12b-24gb", None),
     ("RTX 4080, as nvidia-smi reports it", nvidia(15.99, "NVIDIA GeForce RTX 4080"), "nvidia-e4b-16gb", None),
-    ("RTX 3060 12 GB", nvidia(12, "NVIDIA GeForce RTX 3060"), None, "needs 12.9 GB"),
+    ("RTX 3060 12 GB", nvidia(12, "NVIDIA GeForce RTX 3060"), None, "needs 14.8 GB"),
     ("unknown vendor", Hardware("rocm", "Radeon", 24, 24, "dedicated", 1.0, 200), None, "needs platform apple"),
 ]
 
@@ -82,6 +82,22 @@ def test_experimental_only_by_name():
     r = run(mac(), pinned="stub")
     assert r.config.name == "stub" and r.engines["llm"].id == "llm/stub"
     assert run(nvidia(), pinned="stub").config.name == "stub"          # platform "any"
+
+
+def test_highctx_only_by_name():
+    assert run(nvidia(23.99)).config.name == "nvidia-12b-24gb", "auto mode keeps Breeze on 24 GB"
+    r = run(nvidia(23.99), pinned="nvidia-12b-24gb-highctx")
+    assert r.engines["tts"].id == "tts/pocket-docker" and r.harness["voice"] == "jane", r.harness
+    assert r.params["llm/vllm-docker"]["max_model_len"] == "131072", r.params["llm/vllm-docker"]
+
+
+def test_the_list_to_pick_from():
+    from speakrail.resolver import options
+    names = lambda hw: [(o.config.name, o.fits, o.recommended) for o in options(CONFIGS, hw, ENGINES)]
+    assert names(nvidia(23.99)) == [("nvidia-12b-24gb", True, True), ("nvidia-e4b-16gb", True, False), ("nvidia-12b-24gb-highctx", True, False)], names(nvidia(23.99))
+    assert names(nvidia(15.99)) == [("nvidia-e4b-16gb", True, True), ("nvidia-12b-24gb", False, False), ("nvidia-12b-24gb-highctx", False, False)], "the ones that don't fit are still offered, last"
+    assert not any(r for _, _, r in names(nvidia(12))), "nothing to recommend on 12 GB, and still a list"
+    assert [n for n, _, _ in names(mac())] == ["mac-e4b"], "the stub, for any platform, is for tests"
 
 
 def test_pinned_config_that_does_not_fit():

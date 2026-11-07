@@ -13,7 +13,7 @@ needs = ["${models}/pocket/english/${gguf_file}", "${voices_dir}/${default_voice
 main = 8091
 
 [params]
-image = "speakrail/voxtral-stt-server:0.2.0"
+image = "speakrail/audiocpp-server:0.2.0"
 gguf_file = "pocket-tts-english-q8_0.gguf"
 threads = "4"
 default_voice = "jane"

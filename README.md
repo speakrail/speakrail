@@ -1,16 +1,16 @@
 # Speakrail
 
-A full-duplex voice assistant that runs on a single RTX 4090.
+A full-duplex voice assistant that runs on one NVIDIA GPU with 16 GB or more, or on an Apple Silicon Mac.
 
 ```bash
-git clone https://github.com/speakrail/speakrail && cd speakrail && docker compose up -d
+curl -fsSL https://speakrail.com/install.sh | sh
 ```
 
-Then open **http://localhost:8080** and allow the microphone. Don't worry if it takes long to launch, the entire package is ~75 GB and it takes a long time to compile audio.cpp, prerender TTS cache and start vLLM.
+The installer checks the machine and lists the setups for it, with the memory each needs; the one it recommends is preselected, and any of them can be picked. Then it downloads what that setup needs. Then `speakrail start`, and open the page it shows you.
 
 https://github.com/user-attachments/assets/4d73f149-2d94-4bf6-b0a8-76be4b8a1840
 
-Speakrail listens while it talks. You can interrupt it, say "mm-hmm" without stopping it, pause mid-sentence without being cut off, and ask it to count your reps while you keep talking. 
+Speakrail listens while it talks. You can interrupt it, say "mm-hmm" without stopping it, pause mid-sentence without being cut off, and ask it to count your reps while you keep talking.
 
 ## How it works
 
@@ -21,7 +21,7 @@ mic ─► Voxtral Mini 4B Realtime (audio.cpp) + turn-taking head ─► words 
                        one decision per event: speak / listen / interrupt / yield / interject
                                    │
                                    ▼
-                       Breeze TTS 2 ─► speaker
+                       Breeze TTS 2 or Pocket TTS ─► speaker
 ```
 
 - **Turn-taking head:** a small head on Voxtral's hidden states tells, every 80 ms, whether you're speaking, finished, pausing mid-thought, or just backchanneling. [Model card](https://huggingface.co/speakrail/Voxtral-Mini-4B-Realtime-2602-TurnHead).
@@ -46,29 +46,24 @@ Latency on real recorded conversations: the reply reaches your ear about 0.7-0.8
 
 ## Prerequisites
 
-- RTX 4090 (or any other 24 GB NVIDIA card, it should work. If it doesn't - feel free to open an issue. I only have a 4090, so I couldn't test it on anything else.) The prebuilt images cover the RTX 3090 and 4090 generations. An RTX 5090 needs a build from source (see below).
-- Linux with a recent NVIDIA driver
-- Docker with Compose v2 and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-- About 75 GB of disk (models ~22 GB, container images ~50 GB)
+- **NVIDIA:** an x86_64 Linux machine, or Windows with WSL2, with a 16 GB or larger NVIDIA GPU and a recent driver; Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). The engines run in containers, so nothing is compiled. WSL2 hasn't been tested yet.
+- **Mac:** Apple Silicon with 16 GB or more, and Apple's Command Line Tools (`xcode-select --install`).
+- Disk: 15-25 GB of models, and on NVIDIA about 35-50 GB of container images.
 
 ## Installation
 
-The one-liner above is all you need: every setting has a default. To change settings (port, voice, home city, web search), copy the example file first and edit it:
+The one-liner above is all you need; `install.sh --help` lists its options. Which setup runs where is in [configs/](configs/README.md):
 
-```bash
-cp .env.example .env
-docker compose up -d
-```
+| Setup                     | For                                | Voice                                                  | Context     |
+| ------------------------- | ---------------------------------- | ------------------------------------------------------ | ----------- |
+| `nvidia-12b-24gb`         | NVIDIA, 24 GB and up               | Breeze TTS 2 (non-commercial)                          | 16k tokens  |
+| `nvidia-e4b-16gb`         | NVIDIA, 16 GB and up               | Pocket TTS                                             | 128k tokens |
+| `nvidia-12b-24gb-highctx` | NVIDIA, 24 GB and up, by name only | Pocket TTS: a worse voice, for eight times the context | 128k tokens |
+| `mac-e4b`                 | Apple Silicon, 16 GB and up        | Pocket TTS                                             | 16k tokens  |
 
-The first start takes a while, about 20 minutes on a fast connection: about 22 GB of models are downloaded and verified, the services warm up, and short reply openers are pre-rendered in your voice. Later starts take a few minutes. `docker compose logs -f` shows the progress.
+The setup picked at install is the one `speakrail start` runs; `speakrail start --config NAME` runs another one once, and `speakrail install` picks again. If the recommended one was picked, every start chooses again, so a new recommended setup comes with an update. `speakrail config` shows what it would run here and why. The first start measures the machine, a minute or two. `speakrail status`, `speakrail logs` and `speakrail stop` do what they say, and `speakrail doctor` checks the installation.
 
-The containers come from Docker Hub: [speakrail/voxtral-stt-server](https://hub.docker.com/r/speakrail/voxtral-stt-server), [speakrail/breeze-tts-server](https://hub.docker.com/r/speakrail/breeze-tts-server), [speakrail/app](https://hub.docker.com/r/speakrail/app), [speakrail/model-init](https://hub.docker.com/r/speakrail/model-init), plus vLLM's official image. To build everything from source instead:
-
-```bash
-docker compose up -d --build
-```
-
-The speech recognizer is compiled for the RTX 3090 and 4090 generations by default; for an RTX 5090, set `ASR_CUDA_ARCHS=86;89;120` in `.env` before building.
+The container images come from Docker Hub: [speakrail/audiocpp-server](https://hub.docker.com/r/speakrail/audiocpp-server) (speech recognition and Pocket), [speakrail/breeze-tts-server](https://hub.docker.com/r/speakrail/breeze-tts-server) and [speakrail/vllm-openai](https://hub.docker.com/r/speakrail/vllm-openai) (vLLM 0.26 with a patch for Gemma 4's per-layer embeddings). Their Dockerfiles are in [engines/](engines/README.md).
 
 Browsers allow the microphone only on `localhost` or over HTTPS. If Speakrail runs on another machine, use an SSH tunnel:
 
@@ -78,21 +73,36 @@ ssh -L 8080:localhost:8080 your-gpu-box
 
 `http://localhost:8080/debug/` shows what the system sees and decides: turn-head probabilities, every decision, per-turn latencies.
 
+## Troubleshooting
+
+**`speakrail start` stops right away:** `speakrail doctor` says what is missing, with the command that fixes it. `speakrail logs` shows the service's log, and `speakrail logs asr-audiocpp-docker` (or another engine) one engine's.
+
+**The UI doesn't open:** the port is probably taken by another program. Pick a free one: `UI_PORT=8085 speakrail start`.
+
+## Updating and uninstalling
+
+```bash
+speakrail update          # the newest version; it stops Speakrail first, and says which models changed
+speakrail rollback        # back to the version before the last update
+speakrail uninstall       # asks first; --keep-models leaves the models where they are
+```
+
+`speakrail status` says when a newer version is out; it asks GitHub at most once a day, and `SPEAKRAIL_UPDATE_CHECK=0` turns that off. `~/.speakrail/state.json` records what is installed: the commit of the code, the setup, and the repository and commit every model file came from. An update keeps the files and images the version before it used, so a rollback only downloads what the update replaced in place, and removes what neither of the two uses. It only ever removes files it downloaded itself.
+
 ## Configuration
 
-Everything is in `.env` (see [.env.example](.env.example)):
+Settings come from environment variables, or from `--set key=value` on `speakrail start`:
 
-| Setting | Default | |
-|---|---|---|
-| `UI_HOST` / `UI_PORT` | `127.0.0.1` / `8080` | where the web UI listens |
-| `LLM_GPU_MEMORY_UTILIZATION` | `0.48` | lower it if the card also drives your display |
-| `VOICE` | `female_a.wav` | a reference clip in `src/speakrail/harness/voices/` with its transcript next to it |
-| `HOME_CITY` / `HOME_TIMEZONE` | London | "home" for the weather and time tools |
-| `SILENCE_MS` | `1000` | silence that ends your turn when the head is unsure |
-| `NOTES` | `1` | listening notes (better answers to long requests) |
-| `SEARCH` | `off` | `searxng` (local, start with `docker compose --profile search up -d`), `serper` or `brave` (API key) |
-| `FIREWORKS_API_KEY` | empty | enables asking a larger model for hard questions (paid) |
-| `SESSIONS_DIR` | off | save every session (log, context, audio) for debugging |
+| Setting                       | Default              |                                                                                                                       |
+| ----------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `UI_HOST` / `UI_PORT`         | `127.0.0.1` / `8080` | where the web UI listens                                                                                              |
+| `VOICE`                       | the setup's          | a Pocket voice name, or for Breeze a reference clip in `src/speakrail/harness/voices/` with its transcript next to it |
+| `HOME_CITY` / `HOME_TIMEZONE` | London               | "home" for the weather and time tools                                                                                 |
+| `SILENCE_MS`                  | `1000`               | silence that ends your turn when the head is unsure                                                                   |
+| `NOTES`                       | the setup's          | listening notes (better answers to long requests)                                                                     |
+| `SEARCH`                      | `off`                | `serper` or `brave` (API key), or `searxng` with your own SearXNG at `SEARXNG_URL`                                    |
+| `FIREWORKS_API_KEY`           | empty                | enables asking a larger model for hard questions (paid)                                                               |
+| `SESSIONS_DIR`                | off                  | save every session (log, context, audio) for debugging                                                                |
 
 ## Limitations
 
@@ -100,7 +110,7 @@ Everything is in `.env` (see [.env.example](.env.example)):
 - One conversation at a time.
 - Echo cancellation comes from the client: browsers do it; a bare microphone and speaker on a device without it will hear the assistant as you.
 - Following written-format instructions (word counts, markdown) is weaker than base Gemma: the model is tuned for short spoken answers.
-- The default voice (Breeze TTS 2) is for research and non-commercial use only; see the license below.
+- Breeze TTS 2, the voice of the 24 GB setup, is for research and non-commercial use only; see the license below. The other setups use Pocket TTS.
 
 ## License
 
@@ -108,18 +118,9 @@ Speakrail's code is licensed under the [Apache License 2.0](LICENSE).
 
 The models it downloads keep their own licenses (details in [NOTICE](NOTICE)):
 
-- **Gemma 4 12B** (Google DeepMind): Apache 2.0
+- **Gemma 4 12B and E4B** (Google DeepMind): Apache 2.0
 - **Voxtral Mini 4B Realtime** (Mistral AI): Apache 2.0
+- **Pocket TTS** (Kyutai): CC-BY-4.0; its terms prohibit illegal, harmful or deceptive use, including cloning a voice without explicit and lawful consent
 - **Breeze TTS 2** (BreezeBlue): code Apache 2.0; model weights and the audio they generate are for research and non-commercial use only. If you want to use speakrail commercially, you will have to swap that for another TTS. Any streaming TTS should work (in theory).
 
 Speech recognition runs on [our fork of audio.cpp](https://github.com/speakrail/audio.cpp) (Apache 2.0, by [ShugoAI LLC](https://github.com/0xShug0/audio.cpp)), which adds the turn-taking head and peek decoding to its Voxtral realtime model. The voice runs on [our fork of Breeze TTS](https://github.com/speakrail/breeze-tts), which adds int8 serving next to an LLM on one card.
-
-## Troubleshooting
-
-**The UI doesn't open, or `docker compose ps` shows the app as `Created`:** the UI port is probably taken by another program. Pick a free port in `.env` (for example `UI_PORT=8085`), then recreate the app container:
-
-```bash
-docker compose up -d --force-recreate app
-```
-
-A container that failed to start on a busy port keeps a broken network setup, so a plain restart is not enough: it has to be recreated.
