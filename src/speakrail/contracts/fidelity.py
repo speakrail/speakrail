@@ -1,8 +1,9 @@
 """Fidelity: does this LLM engine make the same decisions as a reference? A fast engine with drifted turn-taking is worse than none.
 
-A reference is a JSON list of {"model", "prompt": [ids], "allowed": [ids], "token": "token_id:N", "top": {token: logprob}}.
-Logprobs move a little between engines through bf16 rounding (up to about 1 between two chunk sizes of one engine), so the
-pass mark is the decision itself; the logprob differences are reported for a person to read.
+A reference is {"meta": {...}, "items": [...]} (verify/fidelity/, written by verify/record_fidelity.py), or just the list of items:
+{"model", "prompt": [ids], "allowed": [ids], "token": "token_id:N", "top": {token: logprob}}. Logprobs move a little between engines
+and GPUs through bf16 rounding (up to about 1 between two chunk sizes of one engine), and a decision that was a near-tie can flip with
+them, so the pass mark is the decision itself on at least AGREE of the prompts; the logprob differences are reported for a person.
 """
 from __future__ import annotations
 
@@ -13,6 +14,9 @@ from pathlib import Path
 import aiohttp
 
 
+AGREE = 0.95
+
+
 @dataclass
 class FidelityResult:
     total: int
@@ -20,10 +24,11 @@ class FidelityResult:
     max_delta: float
     max_delta_likely: float
     differing: list
+    agree: float = AGREE
 
     @property
     def ok(self) -> bool:
-        return self.total > 0 and self.same == self.total
+        return self.total > 0 and self.same >= self.agree * self.total
 
 
 async def decide(http, url, item, salt):
@@ -35,8 +40,9 @@ async def decide(http, url, item, salt):
     return lp["tokens"][0], lp["top_logprobs"][0]
 
 
-async def compare(url: str, reference: Path) -> FidelityResult:
+async def compare(url: str, reference: Path, agree: float = AGREE) -> FidelityResult:
     ref = json.loads(Path(reference).read_text())
+    ref = ref["items"] if isinstance(ref, dict) else ref
     same, deltas, likely, differing = 0, [], [], []
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as http:
         for i, item in enumerate(ref):
@@ -48,7 +54,7 @@ async def compare(url: str, reference: Path) -> FidelityResult:
                 deltas.append(abs(top[t] - item["top"][t]))
                 if item["top"][t] > -5:
                     likely.append(deltas[-1])
-    return FidelityResult(len(ref), same, max(deltas, default=0.0), max(likely, default=0.0), differing)
+    return FidelityResult(len(ref), same, max(deltas, default=0.0), max(likely, default=0.0), differing, agree)
 
 
 async def record(url: str, prompts: list[dict], out: Path) -> int:

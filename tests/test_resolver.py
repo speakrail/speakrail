@@ -84,6 +84,21 @@ def test_experimental_only_by_name():
     assert run(nvidia(), pinned="stub").config.name == "stub"          # platform "any"
 
 
+def test_fidelity_table_is_checked():
+    import tempfile
+    base = 'name="x"\nstatus="experimental"\nplatform="cuda"\nmemory_peak_gib=1\n[engines]\nasr="a"\ntts="t"\nllm="l"\n'
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d, "x.toml")
+        f.write_text(base + '[fidelity]\nreference="nvidia-12b-24gb"\nagree=0.9\n')
+        assert load_config(f).fidelity == {"reference": "nvidia-12b-24gb", "agree": 0.9}
+        for bad in ('[fidelity]\nreference=12\n', '[fidelity]\nagree=1.5\n', '[fidelity]\nthreshold=0.9\n'):
+            f.write_text(base + bad)
+            try:
+                load_config(f); raise AssertionError("accepted " + bad)
+            except ConfigError:
+                pass
+
+
 def test_highctx_only_by_name():
     assert run(nvidia(23.99)).config.name == "nvidia-12b-24gb", "auto mode keeps Breeze on 24 GB"
     r = run(nvidia(23.99), pinned="nvidia-12b-24gb-highctx")

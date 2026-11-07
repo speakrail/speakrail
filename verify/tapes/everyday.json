@@ -1,0 +1,41 @@
+{
+ "tape": "everyday",
+ "voice": "alba",
+ "seconds": 25.59,
+ "speech": [
+  [
+   1.5,
+   3.17,
+   "Hi! How are you doing today?"
+  ],
+  [
+   9.17,
+   11.11,
+   "What is seventeen times twenty-three?"
+  ],
+  [
+   19.11,
+   20.59,
+   "Perfect, thanks!"
+  ]
+ ],
+ "labels": [
+  {
+   "kind": "reply",
+   "at": 3.17,
+   "text": "Hi! How are you doing today?",
+   "within": 4.0
+  },
+  {
+   "kind": "reply",
+   "at": 11.11,
+   "text": "What is seventeen times twenty-three?",
+   "within": 5.0,
+   "contains_any": [
+    "391",
+    "three hundred ninety-one",
+    "three hundred and ninety-one"
+   ]
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 # Engines
 
-Each engine is a process the harness talks to over the local network, in `engines/<role>/<name>/`, where the role is `llm`, `asr` or `tts`. An `engine.toml` says how to run it and what it can do; `src/speakrail/manifest.py` documents the format.
+Each engine is a process the harness talks to over the local network, in `engines/<role>/<name>/`, where the role is `llm`, `asr` or `tts`. An `engine.toml` says how to run it and what it can do; `src/speakrail/manifest.py` documents the format. [Adding an engine](../docs/adding-an-engine.md) walks through writing one.
 
 | Engine | What it is | Runs on |
 |---|---|---|

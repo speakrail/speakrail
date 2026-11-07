@@ -1,4 +1,4 @@
-"""speakrail run | start | stop | status | logs | load | offload | config | doctor | bench | engine | install | update | rollback | uninstall"""
+"""speakrail run | start | stop | status | logs | load | offload | config | doctor | bench | engine | install | update | rollback | verify | uninstall"""
 from __future__ import annotations
 
 import argparse
@@ -116,7 +116,7 @@ def cmd_fidelity(engines, a):
     sup = None
     try:
         sup, url = _start_for_test(e, a.url, _params(a.param))
-        r = asyncio.run(compare(url, a.reference))
+        r = asyncio.run(compare(url, a.reference, a.agree))
     except EngineError as err:
         print(f"{e.id}: can't start: {err}")
         return 1
@@ -145,7 +145,8 @@ def main(argv=None) -> int:
         if name in ("test", "fidelity"):
             s.add_argument("--url", help="test an engine that is already running")
         if name == "fidelity":
-            s.add_argument("--reference", required=True)
+            s.add_argument("--reference", required=True, help="a file in verify/fidelity")
+            s.add_argument("--agree", type=float, default=0.95, help="the share of decisions that must be the same (0.95)")
     def choices(sp):
         sp.add_argument("--config", help="use this config instead of choosing one")
         sp.add_argument("--set", action="append", metavar="KEY=VALUE", help="override a setting, for example notes=true")
@@ -182,6 +183,12 @@ def main(argv=None) -> int:
     upd.add_argument("--yes", action="store_true", help="no questions")
     upd.add_argument("--check", action="store_true", help="only say whether there is a newer version")
     top.add_parser("rollback", help="go back to the version before the last update").add_argument("--yes", action="store_true", help="no questions")
+    ver = top.add_parser("verify", help="start a config, play the test tapes through it and write a report")
+    ver.add_argument("--config", help="verify this config instead of the one this machine runs")
+    ver.add_argument("--force", action="store_true", help="even if it needs more memory than this machine has")
+    ver.add_argument("--quick", action="store_true", help="one tape instead of all of them")
+    ver.add_argument("--tapes", help="a folder of tapes (.wav + .json) instead of verify/tapes")
+    ver.add_argument("--out", help="where the report goes, instead of <home>/verify/<config>-<time>")
     un = top.add_parser("uninstall", help="remove Speakrail from this machine")
     un.add_argument("--yes", action="store_true", help="no questions")
     un.add_argument("--keep-models", action="store_true", help="leave the downloaded models where they are")
@@ -193,6 +200,9 @@ def main(argv=None) -> int:
         if a.group == "install":
             from . import installer
             return installer.main(a)
+        if a.group == "verify":
+            from . import verify
+            return verify.main(a)
         if a.group in ("update", "rollback", "uninstall"):
             from . import lifecycle
             return {"update": lifecycle.update_main, "rollback": lifecycle.rollback_main, "uninstall": lifecycle.uninstall_main}[a.group](a)

@@ -1,0 +1,51 @@
+{
+ "tape": "tools",
+ "voice": "marius",
+ "seconds": 29.08,
+ "speech": [
+  [
+   1.5,
+   4.04,
+   "Please add milk and eggs to my shopping list."
+  ],
+  [
+   11.04,
+   13.19,
+   "Make a note that the team meeting moved to Friday."
+  ],
+  [
+   20.19,
+   22.08,
+   "Oh, and add bread too."
+  ]
+ ],
+ "labels": [
+  {
+   "kind": "reply",
+   "at": 4.04,
+   "text": "Please add milk and eggs to my shopping list.",
+   "within": 5.0,
+   "tools_any": [
+    "list_add"
+   ]
+  },
+  {
+   "kind": "reply",
+   "at": 13.19,
+   "text": "Make a note that the team meeting moved to Friday.",
+   "within": 5.0,
+   "tools_any": [
+    "record_note"
+   ]
+  },
+  {
+   "kind": "reply",
+   "at": 22.08,
+   "text": "Oh, and add bread too.",
+   "within": 5.0,
+   "tools_any": [
+    "list_add"
+   ]
+  }
+ ]
+}

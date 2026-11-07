@@ -4,6 +4,9 @@ One file per setup: which engines run, and which features they start with. Auto 
 
     speakrail config            what auto mode would choose here, and why
     speakrail config list       every config, and whether it fits this machine
+    speakrail verify            start a config, play the test tapes through it, and write a report
+
+[Adding a config](../docs/adding-a-config.md) walks through writing one, verifying it, and getting it marked tested.
 
 Replies are greedy and decisions have no bias unless a config says otherwise. These belong to the checkpoint, so a config that uses one benchmarked with them sets them in `[harness]`; no environment variable or `--set` reaches them:
 
