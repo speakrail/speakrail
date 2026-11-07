@@ -1,8 +1,8 @@
 #!/bin/sh
 # Installs Speakrail. Everything goes in ~/.speakrail, with its own Python, so nothing else on this machine changes.
 #
-#   curl -fsSL https://speakrail.com/install.sh | sh
-#   curl -fsSL https://speakrail.com/install.sh | sh -s -- --yes
+#   curl -fsSL https://raw.githubusercontent.com/speakrail/speakrail/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/speakrail/speakrail/main/install.sh | sh -s -- --yes
 #
 # --yes                no questions
 # --home DIR           install there instead of ~/.speakrail (or set SPEAKRAIL_HOME)

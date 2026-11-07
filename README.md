@@ -3,7 +3,7 @@
 A full-duplex voice assistant that runs on one NVIDIA GPU with 16 GB or more, or on an Apple Silicon Mac.
 
 ```bash
-curl -fsSL https://speakrail.com/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/speakrail/speakrail/main/install.sh | sh
 ```
 
 The installer checks the machine and lists the setups for it, with the memory each needs; the one it recommends is preselected, and any of them can be picked. Then it downloads what that setup needs. Then `speakrail start`, and open the page it shows you.
