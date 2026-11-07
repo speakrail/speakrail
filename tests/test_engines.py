@@ -285,6 +285,124 @@ def test_the_harness_passes_the_settings_on():
     assert m.bias == {106: 1.0} and (m.reply_temp, m.reply_top_p, m.reply_top_k) == (0.7, 0.95, 64)
 
 
+
+FAKE_DOCKER = """#!/bin/sh
+# stands in for docker: records every call, and `run` starts the image's "server", a small HTTP server on the port in its last argument
+echo "$@" >> "$DOCKER_LOG"
+case "$1" in
+  info) echo '{"nvidia":{},"runc":{}}' ;;
+  image) [ "$MISSING_IMAGE" != 1 ] ;;
+  stop) [ -f "$DOCKER_PID" ] && kill "$(cat "$DOCKER_PID")" 2>/dev/null; rm -f "$DOCKER_PID" ;;
+  rm) [ -f "$DOCKER_PID" ] && kill -9 "$(cat "$DOCKER_PID")" 2>/dev/null; rm -f "$DOCKER_PID" ;;
+  run) for last; do :; done; echo $$ > "$DOCKER_PID"; exec "$FAKE_PYTHON" -m http.server "$last" --bind 127.0.0.1 ;;
+esac
+"""
+
+
+def _container_engine(root, port=18790):
+    d = Path(root) / "x" / "box"
+    d.mkdir(parents=True)
+    (d / "engine.toml").write_text(textwrap.dedent(f"""\
+        contract = 1
+        role = "tts"
+        name = "box"
+        capabilities = ["stream"]
+        platforms = ["{sys.platform}"]
+        url = "http://127.0.0.1:${{port_main}}/"
+        startup_timeout_s = 15
+        [ports]
+        main = {port}
+        [params]
+        image = "example/image:1"
+        [[process]]
+        name = "server"
+        image = "${{image}}"
+        entrypoint = "/app/server"
+        gpu = true
+        mounts = ["${{models}}:/models:ro"]
+        docker_args = ["--ipc=host"]
+        env = {{ A = "${{port_main}}" }}
+        cmd = ["--port", "${{port_main}}"]
+        health = "http://127.0.0.1:${{port_main}}/"
+        """))
+    return load_manifest(d / "engine.toml")
+
+
+def test_a_container_engine_starts_and_stops_by_name():
+    root = tempfile.mkdtemp(prefix="speakrail-docker-")
+    bin_dir, log, pid = Path(root) / "bin", Path(root) / "docker.log", Path(root) / "docker.pid"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(FAKE_DOCKER)
+    (bin_dir / "docker").chmod(0o755)
+    saved = {k: os.environ.get(k) for k in ("PATH", "DOCKER_LOG", "DOCKER_PID", "FAKE_PYTHON", "MISSING_IMAGE")}
+    os.environ.update(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", DOCKER_LOG=str(log), DOCKER_PID=str(pid), FAKE_PYTHON=sys.executable)
+    os.environ.pop("MISSING_IMAGE", None)
+    e = _container_engine(root)
+    sup = Supervisor(home=root, models=Path(root) / "models")
+    try:
+        sup.start(e)
+        assert sup.state(e.id) == READY
+        run = next(l for l in log.read_text().splitlines() if l.startswith("run "))
+        for part in ("--name speakrail-tts-box-server", "--network host", "--no-healthcheck", "--gpus all", f"-v {Path(root) / 'models'}:/models:ro", "-e A=18790", "--entrypoint /app/server", "--ipc=host", "example/image:1 --port 18790"):
+            assert part in run, (part, run)
+        assert "rm -f speakrail-tts-box-server" in log.read_text()         # clears a leftover first
+        calls_before = len(log.read_text().splitlines())
+        sup.stop(e.id)
+        after = log.read_text().splitlines()[calls_before:]
+        assert any(l.startswith("stop ") and "speakrail-tts-box-server" in l for l in after) and any(l == "rm -f speakrail-tts-box-server" for l in after), after
+        assert wait_for(lambda: port_free(18790)) and sup.state(e.id) == STOPPED
+        sup.start(e)                                      # a supervisor that was killed leaves its container holding the port: the next start clears it
+        crashed = Supervisor(home=root, models=Path(root) / "models")
+        sup.running.clear()
+        try:
+            crashed.start(e)
+            assert crashed.state(e.id) == READY
+        finally:
+            crashed.close()
+        assert wait_for(lambda: port_free(18790))
+        os.environ["MISSING_IMAGE"] = "1"                 # a clear message, not a hung start
+        try:
+            sup.start(e)
+            raise AssertionError("started without its image")
+        except EngineError as err:
+            assert "isn't on this machine" in str(err), err
+    finally:
+        sup.close()
+        for k, v in saved.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+def test_container_fields_need_an_image():
+    d = Path(tempfile.mkdtemp(prefix="speakrail-manifest-")) / "engine.toml"
+    d.write_text(textwrap.dedent("""\
+        contract = 1
+        role = "tts"
+        name = "x"
+        capabilities = []
+        platforms = ["linux"]
+        url = "http://x/"
+        [ports]
+        main = 1
+        [[process]]
+        name = "a"
+        cmd = ["b"]
+        gpu = true
+        health = "tcp://x:1"
+        """))
+    try:
+        load_manifest(d)
+        raise AssertionError("gpu without an image was accepted")
+    except ManifestError as e:
+        assert "only mean something" in str(e), e
+
+
+def test_every_nvidia_engine_is_a_container_with_a_health_check():
+    for key in ("asr/audiocpp-docker", "tts/pocket-docker", "tts/breeze-docker", "llm/vllm-docker"):
+        e = ENGINES[key]
+        assert e.in_containers and all(p.image for p in e.processes) and any(p.health for p in e.processes), key
+    assert ENGINES["llm/vllm-docker"].needs_gpu_runtime and not ENGINES["tts/pocket-docker"].needs_gpu_runtime
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     bad = 0

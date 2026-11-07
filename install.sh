@@ -19,6 +19,52 @@ UV_VERSION="0.11.8"
 say() { printf '%s\n' "$*"; }
 die() { printf '%s\n' "$*" >&2; exit 1; }
 
+check_mac() {
+    if ! xcode-select -p >/dev/null 2>&1 || ! git --version >/dev/null 2>&1; then
+        die "Speakrail compiles one part of itself, and that needs Apple's Command Line Tools. Install them with:
+
+  xcode-select --install
+
+then run this installer again."
+    fi
+}
+
+# On Linux the engines run in Docker, on the GPU through the NVIDIA Container Toolkit. Nothing is compiled here.
+check_linux() {
+    wsl=0
+    if grep -qi microsoft /proc/version 2>/dev/null; then wsl=1; fi
+    command -v git >/dev/null 2>&1 || die "This installer needs git. On Ubuntu or Debian: sudo apt install git"
+    if ! command -v nvidia-smi >/dev/null 2>&1 && [ ! -x /usr/lib/wsl/lib/nvidia-smi ]; then
+        if [ "$wsl" = 1 ]; then
+            die "WSL can't see an NVIDIA GPU. Install the NVIDIA driver on Windows (not inside WSL), then run this again."
+        fi
+        die "Speakrail needs an NVIDIA GPU and its driver, and nvidia-smi isn't here. Install the driver, then run this again."
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
+        if [ "$wsl" = 1 ]; then
+            die "Speakrail runs its engines in Docker. Install Docker Desktop on Windows and turn on its WSL integration for this distribution, then run this again."
+        fi
+        die "Speakrail runs its engines in Docker. Install Docker Engine (https://docs.docker.com/engine/install/), then run this again."
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        die "Docker is installed, but this user can't reach it. Start it, or add yourself to the docker group:
+
+  sudo usermod -aG docker \"\$USER\"
+
+then log out and back in, and run this again."
+    fi
+    # Docker Desktop on WSL2 passes GPUs with --gpus alone, without a named runtime
+    if [ "$wsl" = 0 ] && ! docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+        die "Docker can't reach the GPU yet. Install the NVIDIA Container Toolkit
+(https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), then:
+
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+
+and run this again."
+    fi
+}
+
 main() {
     home="${SPEAKRAIL_HOME:-$HOME/.speakrail}"
     source_dir=""
@@ -40,18 +86,12 @@ main() {
     done
 
     case "$(uname -s)-$(uname -m)" in
-        Darwin-arm64) ;;
+        Darwin-arm64) check_mac ;;
         Darwin-*) die "Speakrail needs Apple Silicon: an Intel Mac doesn't have the GPU memory it uses." ;;
-        Linux-*) die "Linux and WSL aren't ready in this installer yet. They're coming with the NVIDIA engines." ;;
-        *) die "Speakrail runs on Apple Silicon for now. On Windows it will come through WSL2." ;;
+        Linux-x86_64) check_linux ;;
+        Linux-*) die "On Linux, Speakrail runs on x86_64 machines with an NVIDIA GPU for now." ;;
+        *) die "Speakrail runs on Apple Silicon, and on Linux or WSL2 with an NVIDIA GPU." ;;
     esac
-    if ! xcode-select -p >/dev/null 2>&1 || ! git --version >/dev/null 2>&1; then
-        die "Speakrail compiles one part of itself, and that needs Apple's Command Line Tools. Install them with:
-
-  xcode-select --install
-
-then run this installer again."
-    fi
     command -v curl >/dev/null 2>&1 || die "This installer needs curl."
     if [ "$yes" = 0 ] && ! (: </dev/tty) 2>/dev/null; then
         die "There's no terminal to ask questions in. Add --yes to go with what it suggests."

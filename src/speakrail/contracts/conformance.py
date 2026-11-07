@@ -251,15 +251,30 @@ async def check_asr(url: str, capabilities, seconds=8.0, frame_s=0.05) -> list[C
 
 
 # ---------------------------------------------------------------------- TTS
-async def check_tts(url: str, capabilities, model="") -> list[Check]:
+TTS_BUSY = (409, 503)                                 # the engine is still releasing a killed request
+
+
+def speech_request(worker: str, model: str, text: str) -> dict:
+    """arguments for one speech POST, in the form this engine's harness worker speaks: Breeze takes a form with a reference voice, the others JSON"""
+    if worker == "breeze":
+        form = aiohttp.FormData()
+        form.add_field("text", text)
+        form.add_field("ref_text", VOICE.with_suffix(".txt").read_text().strip())
+        form.add_field("seed", "42")
+        form.add_field("ref_audio", VOICE.read_bytes(), filename="ref.wav", content_type="audio/wav")
+        return {"data": form}
+    return {"json": {"model": model, "input": text, "response_format": "pcm", "stream_format": "audio"}}
+
+
+async def check_tts(url: str, capabilities, model="", worker="pocket") -> list[Check]:
     c = Checks()
     caps = set(capabilities)
-    body = {"model": model, "input": "This is a short test of the speech engine.", "response_format": "pcm", "stream_format": "audio"}
+    text = "This is a short test of the speech engine."
 
     async def post_ready(http):
-        for _ in range(100):                          # 503 means busy, as with a killed request still releasing
-            r = await http.post(url, json=body)
-            if r.status != 503:
+        for _ in range(100):
+            r = await http.post(url, **speech_request(worker, model, text))
+            if r.status not in TTS_BUSY:
                 return r
             r.release()
             await asyncio.sleep(0.1)
@@ -305,4 +320,4 @@ async def check(engine, url: str) -> list[Check]:
         return await check_llm(url, engine.capabilities)
     if engine.role == "asr":
         return await check_asr(url, engine.capabilities)
-    return await check_tts(url, engine.capabilities, engine.harness.get("model", ""))
+    return await check_tts(url, engine.capabilities, engine.harness.get("model", ""), engine.harness.get("worker", "pocket"))

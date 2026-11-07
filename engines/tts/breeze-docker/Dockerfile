@@ -1,6 +1,6 @@
 # Speakrail TTS: Breeze TTS 2 from the speakrail fork (int8 weights, slim CUDA-graph profile, disconnect fix).
 #
-#   docker build -t speakrail-tts engines/tts/breeze
+#   docker build -t speakrail-tts engines/tts/breeze-docker
 #   docker run --gpus all -v ./models:/models -p 127.0.0.1:7860:7860 speakrail-tts
 #
 # The Breeze weights and everything they generate are for research and non-commercial use only (BreezeBlue license).

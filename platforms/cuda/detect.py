@@ -21,10 +21,14 @@ def is_wsl(version_text=None):
     return "microsoft" in version_text.lower()
 
 
+WSL_NVIDIA_SMI = "/usr/lib/wsl/lib/nvidia-smi"     # where WSL2 puts it, not always on PATH (NVIDIA's WSL guide)
+
+
 def detect():
-    if not shutil.which("nvidia-smi"):
+    smi = shutil.which("nvidia-smi") or (WSL_NVIDIA_SMI if Path(WSL_NVIDIA_SMI).exists() else None)
+    if not smi:
         return None
-    out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10)
+    out = subprocess.run([smi, "--query-gpu=name,memory.total,memory.free", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10)
     if out.returncode != 0:
         return None
     gpu = parse_nvidia_smi(out.stdout)

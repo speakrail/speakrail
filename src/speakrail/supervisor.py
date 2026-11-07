@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from . import containers
 from .config import CFG
 from .contracts import ROLES
 from .manifest import Engine, render, values_for
@@ -57,6 +58,7 @@ class Running:
     values: dict
     state: str = STARTING
     procs: dict = field(default_factory=dict)            # process name -> Popen
+    containers: list = field(default_factory=list)       # names of the containers it started, in order
     error: str = ""
     started_s: float | None = None
 
@@ -107,6 +109,13 @@ class Supervisor:
                 raise EngineError(f"{engine.id} is already {prev.state}")
         if not engine.runs_on():
             raise EngineError(f"{engine.id} doesn't run on {sys.platform} (it runs on {', '.join(engine.platforms)})")
+        leftovers = [containers.name(engine.slug, p.name) for p in engine.processes if p.image]
+        for name in leftovers:                             # a run that was killed leaves its containers holding their ports and GPU memory
+            containers.remove(name)
+        if leftovers:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not all(port_free(int(port)) for port in engine.ports.values()):
+                time.sleep(0.1)
         for name, port in engine.ports.items():
             if not port_free(int(port)):
                 raise EngineError(f"{engine.id}: port {port} ({name}) is already in use")
@@ -120,6 +129,12 @@ class Supervisor:
         missing = [p for p in (render(n, values, engine.id) for n in engine.needs) if not Path(p).exists()]
         if missing:
             raise EngineError(f"{engine.id} is missing {', '.join(missing)}")
+        if engine.in_containers:
+            if (why := containers.problem(gpu=engine.needs_gpu_runtime)):
+                raise EngineError(f"{engine.id}: {why}")
+            for image in {render(p.image, values, engine.id) for p in engine.processes if p.image}:
+                if not containers.image_present(image):
+                    raise EngineError(f"{engine.id}: the image {image} isn't on this machine (docker pull {image})")
         for f in engine.files:
             (run_dir / f["name"]).write_text(render((engine.dir / f["template"]).read_text(), values, f"{engine.id} file {f['name']}"))
         r = Running(engine, values)
@@ -131,9 +146,17 @@ class Supervisor:
         env = {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
         try:
             for proc in engine.processes:
-                cmd = [render(c, values, f"{engine.id} {proc.name}") for c in proc.cmd]
-                cwd = render(proc.cwd, values, f"{engine.id} {proc.name}") if proc.cwd else None
-                penv = {**env, **{k: render(str(v), values, f"{engine.id} {proc.name}") for k, v in proc.env.items()}}
+                where = f"{engine.id} {proc.name}"
+                cmd = [render(c, values, where) for c in proc.cmd]
+                cwd = render(proc.cwd, values, where) if proc.cwd else None
+                own_env = {k: render(str(v), values, where) for k, v in proc.env.items()}
+                penv = {**env, **own_env}
+                if proc.image:
+                    name = containers.name(engine.slug, proc.name)
+                    r.containers.append(name)
+                    cmd = containers.run_command(name, render(proc.image, values, where), cmd, proc.entrypoint and render(proc.entrypoint, values, where), proc.gpu,
+                                                 [render(m, values, where) for m in proc.mounts], own_env, [render(a, values, where) for a in proc.docker_args])
+                    penv = env
                 log = open(log_dir / f"{proc.name}.log", "ab", buffering=0)
                 log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n".encode())
                 try:
@@ -201,6 +224,8 @@ class Supervisor:
             pass
 
     def _kill(self, r: Running) -> None:
+        for name in reversed(r.containers):                # by name: their `docker run` clients below don't reliably take them along
+            containers.stop(name)
         procs = list(r.procs.values())
         for p in reversed(procs):
             self._signal(p, signal.SIGTERM)                # also when the leader is gone: its group may outlive it
@@ -233,11 +258,26 @@ class Supervisor:
         self._stop.set()
 
 
-def install(engine: Engine, home: Path | str | None = None, uv: str = "uv") -> Path | None:
-    """create the engine's own Python environment. Engines without one have nothing to install here."""
+def images(engine: Engine, home: Path | str | None = None, params: dict | None = None) -> set[str]:
+    """the images the engine's containers run, with the config's params filled in: a config can pick the image"""
+    if not engine.in_containers:
+        return set()
+    home = Path(home or CFG.home)
+    values = values_for(engine, home, Path(CFG.models_dir or home / "models"), home / "run" / engine.slug, params)
+    return {render(p.image, values, engine.id) for p in engine.processes if p.image}
+
+
+def install(engine: Engine, home: Path | str | None = None, uv: str = "uv", params: dict | None = None) -> Path | None:
+    """get what the engine runs from: its images, or its own Python environment. Engines with neither have nothing to install here."""
+    home = Path(home or CFG.home)
+    if engine.in_containers:
+        if (why := containers.problem(gpu=engine.needs_gpu_runtime)):
+            raise EngineError(f"{engine.id}: {why}")
+        for image in images(engine, home, params):
+            if not containers.image_present(image):
+                containers.pull(image)
     if not engine.python:
         return None
-    home = Path(home or CFG.home)
     env = engine.env_dir(home)
     env.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([uv, "-q", "venv", "--allow-existing", "--python", str(engine.python.get("version", "3.12")), str(env)], check=True)

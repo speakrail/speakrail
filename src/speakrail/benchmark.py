@@ -13,7 +13,7 @@ from pathlib import Path
 import aiohttp
 import websockets
 
-from .contracts.conformance import speech_16k
+from .contracts.conformance import TTS_BUSY, speech_16k, speech_request
 
 QUERY = "?encoding=pcm_s16le&sample_rate=16000&channels=1&delay_ms=480&turn_detection=none&client_id=bench&turn_probs=true"
 FRAME = 2560
@@ -114,13 +114,13 @@ async def _llm_speed(url, lora="speakrail"):
     return statistics.median(ms), ((n - 1) / total if n and n > 1 and total > 0 else None)
 
 
-async def _tts_speed(url, model):
-    body = {"model": model, "input": "This is a short test of how fast the speech engine runs on this machine.", "response_format": "pcm", "stream_format": "audio"}
+async def _tts_speed(url, model, worker="pocket"):
+    text = "This is a short test of how fast the speech engine runs on this machine."
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as http:
         for _ in range(100):
             t0 = time.perf_counter()
-            r = await http.post(url, json=body)
-            if r.status != 503:
+            r = await http.post(url, **speech_request(worker, model, text))
+            if r.status not in TTS_BUSY:
                 break
             r.release()
             await asyncio.sleep(0.1)
@@ -133,7 +133,7 @@ async def _tts_speed(url, model):
     return ((first - t0) * 1000 if first else None), (audio_s / total if total > 0 else None)
 
 
-async def run(urls: dict, tts_model: str, capabilities: dict | None = None) -> dict:
+async def run(urls: dict, tts_model: str, capabilities: dict | None = None, tts_worker: str = "pocket") -> dict:
     t0 = time.monotonic()
     frame_ms, peek_ms = await _asr_speed(urls["asr"])
     stop, lags = asyncio.Event(), []
@@ -145,7 +145,7 @@ async def run(urls: dict, tts_model: str, capabilities: dict | None = None) -> d
     finally:
         stop.set()
         await feed
-    ttfa, speed = await _tts_speed(urls["tts"], tts_model)
+    ttfa, speed = await _tts_speed(urls["tts"], tts_model, tts_worker)
     lags.sort()
     return {"asr_frame_ms": frame_ms, "asr_peek_ms": peek_ms, "asr_lag_p90_ms": lags[int(.9 * len(lags))] if lags else None, "llm_decision_ms": decision_ms, "llm_decode_tok_s": tok_s,
             "tts_ttfa_ms": ttfa, "tts_realtime_x": speed, "took_s": round(time.monotonic() - t0, 1), "date": time.strftime("%Y-%m-%d %H:%M")}

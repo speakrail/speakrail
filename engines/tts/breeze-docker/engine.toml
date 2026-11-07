@@ -1,0 +1,28 @@
+# Breeze TTS 2 from the image built by the Dockerfile here. The weights and what they generate are for research and non-commercial use only.
+contract = 1
+role = "tts"
+name = "breeze-docker"
+description = "Breeze TTS 2, int8 with CUDA graphs, on an NVIDIA GPU (non-commercial)"
+capabilities = ["stream", "cancel", "clone"]
+platforms = ["linux"]
+url = "http://127.0.0.1:${port_main}/v1/audio/speech"
+startup_timeout_s = 600                # the warm-up captures CUDA graphs and compiles kernels
+needs = ["${models}/breeze-tts-2/config.json"]
+
+[ports]
+main = 7860
+
+[params]
+image = "speakrail/breeze-tts-server:0.2.0"
+
+[harness]
+worker = "breeze"
+model = "breeze-tts-2"
+
+[[process]]
+name = "server"
+image = "${image}"
+gpu = true
+mounts = ["${models}:/models:ro"]
+env = { MODELS_DIR = "/models", TTS_HOST = "127.0.0.1", TTS_PORT = "${port_main}" }
+health = "http://127.0.0.1:${port_main}/health"

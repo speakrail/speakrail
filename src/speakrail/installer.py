@@ -8,9 +8,11 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import hashlib
+import json
 import os
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -30,6 +32,7 @@ LICENSES = """Licenses
   Speakrail's code is Apache 2.0. The models keep their own licenses; NOTICE has the details.
   Voxtral and Gemma: Apache 2.0. Pocket TTS: CC-BY-4.0, by Kyutai.
   Pocket's terms prohibit illegal, harmful or deceptive use, including cloning a voice without explicit and lawful consent."""
+BREEZE_LICENSE = "  Breeze TTS 2: its weights and what they generate are for research and non-commercial use only."
 RC_MARK = "# added by the Speakrail installer"
 HUB = "https://huggingface.co"
 CHUNK = 64 << 20
@@ -54,19 +57,25 @@ class Choices:
     modify_path: bool
 
 
-def summary(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True) -> str:
+def licenses(config) -> str:
+    return LICENSES + ("\n" + BREEZE_LICENSE if "tts/breeze-docker" in config.engines.values() else "")
+
+
+def summary(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True, images: list[str] = ()) -> str:
     lines = [f"Machine   {hw.describe()}", f"Config    {config.name} ({config.status}): {config.description}", f"Memory    the stack peaks at {config.memory_peak_gib:.1f} GB",
              f"Installs  to {home}", f"Models    to {c.models}: about {size_gb:.1f} GB to download"]
+    if images:
+        lines.append(f"Images    Docker pulls {', '.join(images)}, unless it has them")
     if builds:
         lines.append("Build     audio.cpp from source, about a minute")
     lines.append(f"Path      {'adds one line to ' + str(rc) if c.modify_path and rc else 'leaves your shell alone; you run ' + str(home / 'bin/speakrail') + ' by its full path'}")
     return "\n".join(lines)
 
 
-def wizard(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True, ask=tty_ask) -> bool:
+def wizard(hw, config, home: Path, c: Choices, rc: Path | None, size_gb: float, builds: bool = True, ask=tty_ask, images: list[str] = ()) -> bool:
     """-> go ahead? Changes `c` if asked to."""
     while True:
-        say("\n" + summary(hw, config, home, c, rc, size_gb, builds) + "\n\n" + LICENSES + "\n\n  1) Proceed\n  2) Customize\n  3) Cancel\n")
+        say("\n" + summary(hw, config, home, c, rc, size_gb, builds, images) + "\n\n" + licenses(config) + "\n\n  1) Proceed\n  2) Customize\n  3) Cancel\n")
         answer = ask("> ")
         if answer in ("", "1"):
             return True
@@ -208,6 +217,53 @@ def fetch(files: list[File]) -> None:
         download(f"{HUB}/{f.repo}/resolve/{f.revision}/{f.path}", f.dest, f.size, f.sha256)
 
 
+# ---------------------------------------------------------------------- trained rows
+ROW_TARGETS = {"embed_tokens": ("model.language_model.embed_tokens.weight", "lm_head.weight"), "embed_tokens_per_layer": ("model.language_model.embed_tokens_per_layer.weight",)}
+
+
+def _safetensors_header(path: Path) -> tuple[int, dict]:
+    with open(path, "rb") as f:
+        n = struct.unpack("<Q", f.read(8))[0]
+        return 8 + n, json.loads(f.read(n))
+
+
+def write_rows(weights: Path, rows: Path) -> None:
+    """the trained rows of the control tokens into a Google checkpoint we don't re-host, in place, so the result is the benchmarked model byte for byte.
+    The file says which token ids it holds; a table the model doesn't have is an error, one it has twice (the tied head) gets both."""
+    base_r, hr = _safetensors_header(rows)
+    meta = hr.get("__metadata__") or {}
+    first, _, last = meta.get("ids", "6-27").partition("-")
+    base_w, hw = _safetensors_header(weights)
+    with open(rows, "rb") as fr, open(weights, "r+b") as fw:
+        for key, t in hr.items():
+            if key == "__metadata__":
+                continue
+            if key not in ROW_TARGETS or t["dtype"] != "BF16" or t["shape"][0] != int(last) - int(first) + 1:
+                raise InstallError(f"Unexpected token rows in {rows.name}: {key} {t}")
+            fr.seek(base_r + t["data_offsets"][0])
+            data = fr.read(t["data_offsets"][1] - t["data_offsets"][0])
+            found = [hw[n] for n in ROW_TARGETS[key] if n in hw]
+            if not found or any(m["dtype"] != "BF16" or m["shape"][1] != t["shape"][1] for m in found):
+                raise InstallError(f"{weights.name} doesn't match the rows for {key}")
+            for m in found:
+                fw.seek(base_w + m["data_offsets"][0] + int(first) * m["shape"][1] * 2)
+                fw.write(data)
+
+
+def apply_patch(entry: dict, models: Path) -> None:
+    """one [[patch]]. A marker records it's done, so it runs once; a wrong result is removed, and the next install fetches the checkpoint again."""
+    weights, rows = models / entry["weights"], models / entry["rows"]
+    marker = weights.with_name(weights.name + ".speakrail-patched")
+    if marker.exists() and marker.read_text().strip() == entry["sha256"]:
+        return
+    say(f"Writing the trained token rows into {weights.parent.name}/{weights.name}...")
+    write_rows(weights, rows)
+    if sha256_of(weights) != entry["sha256"]:
+        weights.unlink()
+        raise InstallError(f"{weights.name} doesn't match the benchmarked model after patching, so it was removed. Run the installer again.")
+    marker.write_text(entry["sha256"] + "\n")
+
+
 # ---------------------------------------------------------------------- audio.cpp
 def build_audiocpp(home: Path, platform: str) -> None:
     pin = tomllib.loads((REPO_ROOT / "engines/audiocpp.toml").read_text())
@@ -277,7 +333,7 @@ def add_to_path(rc: Path, bin_dir: Path) -> bool:
 def main(a) -> int:
     from .resolver import ResolveError
     from .run import setup
-    from .supervisor import install as install_env
+    from .supervisor import EngineError, images as engine_images, install as install_env
     home = Path(CFG.home)
     hw = detect()
     try:
@@ -287,16 +343,17 @@ def main(a) -> int:
         return _cancel(home, a, 2)
     config = resolved.config
     builds = any("audiocpp_dir" in e.params for e in resolved.engines.values())
+    images = sorted({i for e in resolved.engines.values() for i in engine_images(e, home, resolved.params.get(e.id))})
     choices = Choices(models=Path(a.models).expanduser().resolve() if a.models else Path(CFG.models_dir or home / "models"), modify_path=not a.no_modify_path)
     rc = rc_file(os.environ.get("SHELL", ""), Path.home())
     try:
         files = plan(config.downloads, choices.models)
         size_gb = sum(f.size for f in missing(files)) / 1e9
-        if not a.yes and not wizard(hw, config, home, choices, rc, size_gb, builds):
+        if not a.yes and not wizard(hw, config, home, choices, rc, size_gb, builds, images=images):
             say("Cancelled.")
             return _cancel(home, a, 0)
         if a.yes:
-            say("\n" + summary(hw, config, home, choices, rc, size_gb, builds) + "\n\n" + LICENSES + "\n")
+            say("\n" + summary(hw, config, home, choices, rc, size_gb, builds, images) + "\n\n" + licenses(config) + "\n")
         files = plan(config.downloads, choices.models)     # the models folder may have changed
         need = sum(f.size for f in missing(files)) / 2**30
         choices.models.mkdir(parents=True, exist_ok=True)
@@ -307,12 +364,17 @@ def main(a) -> int:
             if e.python:
                 say(f"\nSetting up {e.id}, which has its own Python libraries...")
                 install_env(e, home, uv=str(home / "bin" / "uv"))
+            elif e.in_containers:
+                say(f"\nGetting the container image for {e.id}...")
+                install_env(e, home, params=resolved.params.get(e.id))
         if builds:
             build_audiocpp(home, hw.platform)
         if files:
             say("Fetching the models. If this stops, run the installer again and it carries on.")
             fetch(files)
-    except (InstallError, subprocess.CalledProcessError, OSError) as e:
+        for entry in config.patches:
+            apply_patch(entry, choices.models)
+    except (InstallError, EngineError, subprocess.CalledProcessError, OSError) as e:
         say(f"{e}\nRun the installer again to carry on from here.")
         return 1
     except KeyboardInterrupt:

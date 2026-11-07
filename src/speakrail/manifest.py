@@ -34,6 +34,16 @@
     cwd = "${engine_dir}"             # optional
     env = { KEY = "value" }           # optional
     health = "http://127.0.0.1:${port_main}/health"       # http://... (200) or tcp://host:port
+
+    [[process]]                       # or in a container, on the host network; `cmd` is optional and holds its arguments, `env` goes inside
+    name = "server"
+    image = "${image}"
+    entrypoint = "/app/server"        # optional: instead of the image's own
+    cmd = ["--port", "${port_main}"]
+    gpu = true                        # through the NVIDIA Container Toolkit
+    mounts = ["${models}:/models:ro", "${run}:/run/speakrail:ro"]
+    docker_args = ["--ipc=host"]      # optional, anything else `docker run` should get
+    health = "http://127.0.0.1:${port_main}/health"
 """
 from __future__ import annotations
 
@@ -59,6 +69,11 @@ class Process:
     cwd: str = ""
     env: dict = field(default_factory=dict)
     health: str = ""
+    image: str = ""                   # set: this process is a container (containers.py), and cmd holds its arguments
+    entrypoint: str = ""
+    gpu: bool = False
+    mounts: tuple[str, ...] = ()
+    docker_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,6 +108,14 @@ class Engine:
     def runs_on(self, platform: str = sys.platform) -> bool:
         return platform in self.platforms
 
+    @property
+    def in_containers(self) -> bool:
+        return any(p.image for p in self.processes)
+
+    @property
+    def needs_gpu_runtime(self) -> bool:
+        return any(p.image and p.gpu for p in self.processes)
+
 
 def _need(raw, key, kind, where):
     if key not in raw:
@@ -125,10 +148,16 @@ def load_manifest(path: Path) -> Engine:
     procs = []
     for i, p in enumerate(_need(raw, "process", list, where)):
         w = f"{where}: process {i}"
-        cmd = _need(p, "cmd", list, w)
-        if not cmd:
+        image = p.get("image", "")
+        if image and p.get("cwd"):
+            raise ManifestError(f"{w}: a container has no cwd here; use its image's working directory")
+        if not image and (extra := {"entrypoint", "gpu", "mounts", "docker_args"} & set(p)):
+            raise ManifestError(f"{w}: {sorted(extra)} only mean something with `image`")
+        cmd = p.get("cmd", []) if image else _need(p, "cmd", list, w)
+        if not image and not cmd:
             raise ManifestError(f"{w}: empty cmd")
-        procs.append(Process(_need(p, "name", str, w), tuple(str(c) for c in cmd), p.get("cwd", ""), dict(p.get("env", {})), p.get("health", "")))
+        procs.append(Process(_need(p, "name", str, w), tuple(str(c) for c in cmd), p.get("cwd", ""), dict(p.get("env", {})), p.get("health", ""), image, p.get("entrypoint", ""),
+                             bool(p.get("gpu", False)), tuple(p.get("mounts", ())), tuple(p.get("docker_args", ()))))
     if not procs:
         raise ManifestError(f"{where}: needs at least one [[process]]")
     if not any(p.health for p in procs):

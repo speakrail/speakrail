@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from . import containers
 from .config import CFG
 from .contracts import REQUIRED
 from .manifest import render, values_for
@@ -35,7 +36,13 @@ def checks(args) -> list[tuple[str, str, str]]:
     missing_models = False
     for role, e in r.engines.items():
         values = values_for(e, home, models, home / "run" / e.slug, r.params.get(e.id))
-        if e.python and not Path(values["python"]).exists():
+        problem_docker = containers.problem(gpu=e.needs_gpu_runtime) if e.in_containers else ""
+        missing_images = [] if problem_docker else [image for image in {render(p.image, values, e.id) for p in e.processes if p.image} if not containers.image_present(image)]
+        if e.in_containers and problem_docker:
+            out.append((FAIL, f"{e.id}: can't run its containers", problem_docker))
+        elif missing_images:
+            out.append((FAIL, f"{e.id}: image {missing_images[0]} isn't on this machine", f"docker pull {missing_images[0]}"))
+        elif e.python and not Path(values["python"]).exists():
             out.append((FAIL, f"{e.id}: no environment", f"speakrail engine install {e.id}"))
         else:
             out.append((OK, f"{e.id}: installed", ""))

@@ -37,7 +37,10 @@ TABLE = [
     ("M4 Pro 18 GB", mac(18), "mac-e4b", None),
     ("M4 16 GB", mac(16, "Apple M4"), "mac-e4b", None),
     ("M2 8 GB", mac(8, "Apple M2"), None, "needs 14.7 GB"),
-    ("RTX 4090, Linux engines not there yet", nvidia(24), None, "needs platform apple"),
+    ("RTX 4090, as nvidia-smi reports it", nvidia(23.99), "nvidia-12b-24gb", None),
+    ("RTX 5090", nvidia(32, "NVIDIA GeForce RTX 5090"), "nvidia-12b-24gb", None),
+    ("RTX 4080, as nvidia-smi reports it", nvidia(15.99, "NVIDIA GeForce RTX 4080"), "nvidia-e4b-16gb", None),
+    ("RTX 3060 12 GB", nvidia(12, "NVIDIA GeForce RTX 3060"), None, "needs 12.9 GB"),
     ("unknown vendor", Hardware("rocm", "Radeon", 24, 24, "dedicated", 1.0, 200), None, "needs platform apple"),
 ]
 
@@ -52,6 +55,18 @@ def test_table():
             continue
         assert r.config.name == expected, (name, r.config.name)
         assert expected is not None, (name, "should have been refused")
+
+
+def test_nvidia_configs_are_what_was_measured():
+    h = run(nvidia(23.99)).harness
+    assert (h["turn_k"], h["spec"], h["ant4"], h["peek_frames"], h["notes"], h["tts_engine"]) == (1, True, "", 10, True, "breeze"), h
+    r = run(nvidia(15.99))
+    assert (r.harness["turn_k"], r.harness["ant4"], r.harness["peek_frames"], r.harness["tts_engine"], r.harness["voice"]) == (1, "", 10, "pocket", "jane"), r.harness
+    assert r.params["asr/audiocpp-docker"]["gguf_file"].endswith("q8_0.gguf")
+    assert r.params["llm/vllm-docker"]["cpu_offload_gb"] == "6", r.params["llm/vllm-docker"]
+    big = run(nvidia(23.99))
+    assert "cpu_offload_gb" not in big.params["llm/vllm-docker"] and big.engines["llm"].params["cpu_offload_gb"] == "0", "the 24 GB config keeps everything on the GPU"
+    assert "image" not in big.params["llm/vllm-docker"] and "image" not in r.params["llm/vllm-docker"], "both run the engine's one vLLM image"
 
 
 def test_mac_config_is_what_was_measured():

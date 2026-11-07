@@ -11,3 +11,9 @@ Replies are greedy and decisions have no bias unless a config says otherwise. Th
     reply_top_p = 0.95
     reply_top_k = 64
     decision_bias = "106:1.0"   # <token id>:<logit bias>[,...]; 106 is speak
+
+| Config | For | Models | Peak, all processes | Last word to ear, p50/p90 |
+|---|---|---|---|---|
+| `mac-e4b` | Apple Silicon, 16 GB and up | E4B on MLX, Voxtral q4, Pocket on the CPU | 10.7 GB | 954/1351 ms |
+| `nvidia-12b-24gb` | NVIDIA, 24 GB and up | 12B, Voxtral q8, Breeze (non-commercial) | 22.9 GB | 736/1327 ms |
+| `nvidia-e4b-16gb` | NVIDIA, 16 GB and up | E4B with its per-layer embeddings in host memory, Voxtral q8, Pocket on the CPU | 11.9 GB | 537/1130 ms |

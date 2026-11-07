@@ -138,7 +138,7 @@ def main(args) -> int:
         if not stored and not args.no_bench:
             say("Measuring this machine, under a minute...")
             try:
-                result = asyncio.run(bench.run(urls, resolved.engines["tts"].harness.get("model", "")))
+                result = asyncio.run(bench.run(urls, resolved.engines["tts"].harness.get("model", ""), tts_worker=resolved.engines["tts"].harness.get("worker", "pocket")))
                 bench.save(home / "config" / "benchmark.json", bench.fingerprint(resolved.hardware, resolved.config), result)
                 before = dict(resolved.harness)
                 resolved, _, _ = setup(args, benchmark=result)
@@ -230,7 +230,7 @@ def bench_main(args) -> int:
         engines = list(resolved.engines.values())
         sup.start_all(engines, params={e.id: resolved.params.get(e.id, {}) for e in engines})
         urls = {role: sup.url(e.id) for role, e in resolved.engines.items()}
-        result = asyncio.run(bench.run(urls, resolved.engines["tts"].harness.get("model", "")))
+        result = asyncio.run(bench.run(urls, resolved.engines["tts"].harness.get("model", ""), tts_worker=resolved.engines["tts"].harness.get("worker", "pocket")))
     except EngineError as e:
         say(str(e))
         return 1

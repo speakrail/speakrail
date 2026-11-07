@@ -1,0 +1,38 @@
+# Gemma and the Speakrail LoRA on vLLM 0.26, from the image the Dockerfile here builds: stock 0.26 plus a patch that can keep Gemma 4
+# E2B/E4B's per-layer embeddings in host memory (cpu_offload_gb). Every config runs this one image; a config picks the model through
+# `model_dir`, `adapter_dir` and the sizes.
+contract = 1
+role = "llm"
+name = "vllm-docker"
+description = "Gemma 4 QAT int4 and the Speakrail LoRA on vLLM, on an NVIDIA GPU"
+capabilities = ["chat", "parallel", "per_request_adapter", "cancel", "prefix_cache", "sampling"]
+platforms = ["linux"]
+url = "http://127.0.0.1:${port_main}/v1/completions"
+startup_timeout_s = 600
+needs = ["${models}/${model_dir}/config.json", "${models}/${model_dir}/model.safetensors", "${models}/${adapter_dir}/adapter_config.json"]
+
+[ports]
+main = 8000
+
+[params]
+image = "speakrail/vllm-openai:0.26.0-ple"
+model_dir = "speakrail-gemma/model"
+adapter_dir = "speakrail-gemma/adapter"
+max_model_len = "16384"
+gpu_share = "0.48"                     # of the whole card: weights, graphs and the KV cache together. vLLM starts last, so this has to fit in what ASR and TTS left free.
+max_lora_rank = "32"
+cpu_offload_gb = "0"                   # > 0: weights matching cpu_offload_params stay in pinned host memory, read over UVA. 0 = off
+cpu_offload_params = "embed_tokens_per_layer"   # Gemma 4 E2B/E4B's per-layer embedding table; only takes effect when cpu_offload_gb > 0
+
+[[process]]
+name = "server"
+image = "${image}"
+entrypoint = "vllm"
+cmd = ["serve", "/models/${model_dir}", "--served-model-name=speakrail-base", "--host=127.0.0.1", "--port=${port_main}", "--enable-lora", "--max-lora-rank=${max_lora_rank}", "--max-loras=1",
+       "--lora-modules=speakrail=/models/${adapter_dir}", "--max-model-len=${max_model_len}", "--max-num-seqs=3", "--gpu-memory-utilization=${gpu_share}", "--enable-prefix-caching",
+       "--generation-config=vllm", '--limit-mm-per-prompt={"image":0,"audio":0}', "--cpu-offload-gb=${cpu_offload_gb}", "--cpu-offload-params=${cpu_offload_params}"]
+gpu = true
+mounts = ["${models}:/models:ro"]
+docker_args = ["--ipc=host"]
+env = { VLLM_USE_FLASHINFER_SAMPLER = "0", HF_HUB_OFFLINE = "1" }
+health = "http://127.0.0.1:${port_main}/health"

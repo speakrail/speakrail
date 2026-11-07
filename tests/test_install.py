@@ -255,6 +255,47 @@ def test_install_sh():
     assert text.rstrip().endswith('main "$@"'), "all in one function: a download cut short runs nothing"
 
 
+
+def test_trained_rows_are_written_into_the_weights():
+    import json, struct
+    from speakrail.installer import InstallError, apply_patch, sha256_of
+
+    def write(path, tensors, meta=None):
+        header, blob = ({"__metadata__": meta} if meta else {}), b""
+        for name, (dtype, shape, data) in tensors.items():
+            header[name] = {"dtype": dtype, "shape": shape, "data_offsets": [len(blob), len(blob) + len(data)]}
+            blob += data
+        h = json.dumps(header).encode()
+        path.write_bytes(struct.pack("<Q", len(h)) + h + blob)
+
+    root = Path(tempfile.mkdtemp(prefix="speakrail-patch-"))
+    (root / "m").mkdir()
+    weights, rows = root / "m" / "model.safetensors", root / "m" / "rows.safetensors"
+    n_rows, width = 30, 4
+    write(weights, {"lm_head.weight": ("BF16", [n_rows, width], bytes(n_rows * width * 2)), "model.language_model.embed_tokens.weight": ("BF16", [n_rows, width], bytes(n_rows * width * 2)),
+                    "model.language_model.embed_tokens_per_layer.weight": ("BF16", [n_rows, 2], bytes(n_rows * 2 * 2))})
+    write(rows, {"embed_tokens": ("BF16", [22, width], b"\x01" * (22 * width * 2)), "embed_tokens_per_layer": ("BF16", [22, 2], b"\x02" * (22 * 2 * 2))}, {"ids": "6-27"})
+    original = weights.read_bytes()
+    want = root / "want"
+    b = bytearray(original); n = struct.unpack("<Q", original[:8])[0]; base = 8 + n; h = json.loads(original[8:base])
+    for name, val, w in (("lm_head.weight", 1, width), ("model.language_model.embed_tokens.weight", 1, width), ("model.language_model.embed_tokens_per_layer.weight", 2, 2)):
+        at = base + h[name]["data_offsets"][0] + 6 * w * 2
+        b[at:at + 22 * w * 2] = bytes([val]) * (22 * w * 2)
+    want.write_bytes(bytes(b))
+    entry = {"weights": "m/model.safetensors", "rows": "m/rows.safetensors", "sha256": sha256_of(want)}
+    apply_patch(entry, root)
+    assert weights.read_bytes() == bytes(b)
+    stamp = weights.stat().st_mtime_ns
+    apply_patch(entry, root)                          # once only
+    assert weights.stat().st_mtime_ns == stamp
+    weights.write_bytes(original); (root / "m" / "model.safetensors.speakrail-patched").unlink()
+    try:
+        apply_patch({**entry, "sha256": "0" * 64}, root)
+        raise AssertionError("a wrong result was accepted")
+    except InstallError:
+        assert not weights.exists()
+
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     bad = 0

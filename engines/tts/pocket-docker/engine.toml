@@ -1,0 +1,37 @@
+# The same audio.cpp as tts/pocket, from the ASR engine's image. On the CPU, so it asks for no GPU.
+contract = 1
+role = "tts"
+name = "pocket-docker"
+description = "Kyutai Pocket TTS on audio.cpp, on the CPU"
+capabilities = ["stream", "cancel", "clone"]
+platforms = ["linux"]
+url = "http://127.0.0.1:${port_main}/v1/audio/speech"
+startup_timeout_s = 60
+needs = ["${models}/pocket/english/${gguf_file}", "${voices_dir}/${default_voice}.safetensors"]
+
+[ports]
+main = 8091
+
+[params]
+image = "speakrail/voxtral-stt-server:0.2.0"
+gguf_file = "pocket-tts-english-q8_0.gguf"
+threads = "4"
+default_voice = "jane"
+voices_dir = "${models}/pocket/english/embeddings"   # a voice name is a file here: <name>.safetensors. The engine answers an unknown name with silence, so `run` checks first.
+
+[harness]
+worker = "pocket"
+model = "pocket-tts"
+
+[[file]]
+name = "audiocpp.json"
+template = "audiocpp.json.in"
+
+[[process]]
+name = "audiocpp"
+image = "${image}"
+entrypoint = "/app/audiocpp_server"
+cmd = ["--config", "/run/speakrail/audiocpp.json"]
+mounts = ["${models}:/models:ro", "${run}:/run/speakrail:ro"]
+env = { OMP_NUM_THREADS = "${threads}", OMP_WAIT_POLICY = "PASSIVE" }
+health = "http://127.0.0.1:${port_main}/health"

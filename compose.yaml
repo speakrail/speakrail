@@ -53,7 +53,7 @@ services:
   # Breeze TTS 2 (research and non-commercial use only)
   tts:
     image: docker.io/speakrail/breeze-tts-server:${SPEAKRAIL_VERSION:-0.1.0}
-    build: engines/tts/breeze
+    build: engines/tts/breeze-docker
     <<: *gpu
     volumes: *models-ro
     depends_on:
