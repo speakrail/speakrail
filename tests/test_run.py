@@ -139,7 +139,7 @@ def test_the_harness_dying_stops_everything():
         r.wait_up()
         os.kill(_pid_on(UI), signal.SIGKILL)
         assert r.p.wait(timeout=15) == 1, r.text()[-500:]
-        assert "the harness exited" in r.text()
+        assert "the harness exited" in r.text().lower(), r.text()[-500:]
     finally:
         r.stop()
     assert wait_ports_free()

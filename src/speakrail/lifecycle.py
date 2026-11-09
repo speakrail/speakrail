@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from .config import CFG
-from .ui import say
+from .ui import error, say
 
 STATE = "state.json"
 CHECK_EVERY_S = 24 * 3600
@@ -211,15 +211,15 @@ def install_version(home: Path, app: Path, commit: str, branch: str, config: str
         service.stop_main(None)
     r = git(app, "checkout", "-q", commit)
     if r.returncode != 0:
-        say(f"Couldn't switch the code to {commit[:8]}: {r.stderr.strip()[:300]}")
+        error(f"Couldn't switch the code to {commit[:8]}: {r.stderr.strip()[:300]}")
         return 1
     uv, python = home / "bin" / "uv", home / "venv" / "bin" / "python"
     if not uv.exists() or not python.exists():
-        say(f"This installation has no {uv if not uv.exists() else python}; run install.sh again.")
+        error(f"This installation has no {uv if not uv.exists() else python}; run install.sh again.")
         return 1
     say("Installing its Python libraries...")
     if subprocess.run([str(uv), "pip", "install", "-q", "--python", str(python), "-e", f"{app}[install]"], env=_uv_env(home)).returncode != 0:
-        say("Installing the Python libraries failed; nothing else was changed. `speakrail rollback` goes back.")
+        error("Installing the Python libraries failed; nothing else was changed. `speakrail rollback` goes back.")
         return 1
     cmd = [str(python), "-m", "speakrail", "install", "--yes", "--no-modify-path"]
     if config:
@@ -233,7 +233,7 @@ def install_version(home: Path, app: Path, commit: str, branch: str, config: str
 def _report(home: Path, before: dict | None, rc: int, what: str) -> int:
     after = load_state(home)["current"]
     if rc != 0:
-        say(f"\nThe {what} didn't finish. Run `speakrail {what}` again to carry on, or `speakrail rollback` to go back.")
+        error(f"\nThe {what} didn't finish. Run `speakrail {what}` again to carry on, or `speakrail rollback` to go back.")
         return rc
     lines = changes(before, after)
     if lines:
@@ -245,13 +245,13 @@ def update_main(a, run=install_version) -> int:
     home = Path(CFG.home)
     app = home / "app"
     if not (app / ".git").exists():
-        say("This installation came from a folder (install.sh --source), so it can't update itself. Run install.sh --source again with the new code.")
+        error("This installation came from a folder (install.sh --source), so it can't update itself. Run install.sh --source again with the new code.")
         return 1
     current = load_state(home)["current"] or {}
     branch = (current.get("app") or {}).get("branch") or "main"
     r = git(app, "fetch", "-q", "--depth", "1", "origin", branch)
     if r.returncode != 0:
-        say(f"Couldn't reach the repository: {r.stderr.strip()[:300]}")
+        error(f"Couldn't reach the repository: {r.stderr.strip()[:300]}")
         return 1
     new, head = git(app, "rev-parse", "FETCH_HEAD").stdout.strip(), app_commit(app)
     unfinished = bool(current) and (current.get("app") or {}).get("commit") != head
@@ -276,13 +276,13 @@ def rollback_main(a, run=install_version) -> int:
     home = Path(CFG.home)
     app = home / "app"
     if not (app / ".git").exists():
-        say("This installation came from a folder (install.sh --source), so there is no earlier version to go back to.")
+        error("This installation came from a folder (install.sh --source), so there is no earlier version to go back to.")
         return 1
     state, head = load_state(home), app_commit(app)
     current, previous = state["current"], state["previous"]
     target = current if current and current["app"]["commit"] != head else previous   # an update that didn't finish goes back to what ran before it
     if not target or not target["app"]["commit"]:
-        say("There is no earlier version to go back to.")
+        error("There is no earlier version to go back to.")
         return 1
     commit = target["app"]["commit"]
     say(f"Going back to {target['app']['version']} ({commit[:8]}, installed {target['installed_at']}) with {target['config']}.")
@@ -292,7 +292,7 @@ def rollback_main(a, run=install_version) -> int:
     if git(app, "cat-file", "-e", commit + "^{commit}").returncode != 0:
         r = git(app, "fetch", "-q", "--depth", "1", "origin", commit)
         if r.returncode != 0:
-            say(f"Couldn't fetch {commit[:8]}: {r.stderr.strip()[:300]}")
+            error(f"Couldn't fetch {commit[:8]}: {r.stderr.strip()[:300]}")
             return 1
     rc = run(home, app, commit, target["app"]["branch"] or "main", target["config"], not target.get("pinned"), target["models"], force=bool(target.get("force")))
     return _report(home, current, rc, "rollback")
@@ -370,7 +370,7 @@ def uninstall_main(a, user_home: Path | None = None, use_docker: bool = True) ->
     home = Path(os.path.realpath(CFG.home))
     user_home = Path(user_home or Path.home())
     if not looks_like_home(home):
-        say(f"{home} doesn't look like a Speakrail installation (it has no bin/speakrail or state.json), so nothing was removed.")
+        error(f"{home} doesn't look like a Speakrail installation (it has no bin/speakrail or state.json), so nothing was removed.")
         return 1
     state = load_state(home)
     entries = [e for e in (state["current"], state["previous"]) if e]

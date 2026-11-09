@@ -118,9 +118,10 @@ def test_highctx_only_by_name():
 def test_the_list_to_pick_from():
     from speakrail.resolver import options
     names = lambda hw: [(o.config.name, o.fits, o.recommended) for o in options(CONFIGS, hw, ENGINES)]
-    assert names(nvidia(23.99)) == [("nvidia-12b-24gb", True, True), ("nvidia-e4b-16gb", True, False), ("nvidia-12b-24gb-highctx", True, False)], names(nvidia(23.99))
-    assert names(nvidia(15.99)) == [("nvidia-e4b-16gb", True, True), ("nvidia-12b-24gb", False, False), ("nvidia-12b-24gb-highctx", False, False)], "the ones that don't fit are still offered, last"
-    assert not any(r for _, _, r in names(nvidia(12))), "nothing to recommend on 12 GB, and still a list"
+    assert names(nvidia(23.99)) == [("nvidia-12b-24gb", True, True), ("nvidia-e4b-16gb", True, False), ("nvidia-12b-24gb-highctx", True, False), ("nvidia-e4b-12gb", True, False)], names(nvidia(23.99))
+    assert names(nvidia(15.99)) == [("nvidia-e4b-16gb", True, True), ("nvidia-e4b-12gb", True, False), ("nvidia-12b-24gb", False, False), ("nvidia-12b-24gb-highctx", False, False)], "the ones that don't fit are still offered, last"
+    assert names(nvidia(12))[0] == ("nvidia-e4b-12gb", True, False), "on 12 GB the experimental 12 GB setup fits and is offered first, but isn't recommended"
+    assert not any(r for _, _, r in names(nvidia(10))), "nothing to recommend on 10 GB, and still a list"
     assert [n for n, _, _ in names(mac())] == ["mac-e4b"], "the stub, for any platform, is for tests"
 
 

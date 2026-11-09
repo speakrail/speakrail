@@ -26,7 +26,7 @@ import requests
 
 from .config import CFG, REPO_ROOT
 from .hardware import detect, platform_module
-from .ui import say
+from .ui import error, say
 
 LICENSES = """Licenses
   Speakrail's code is Apache 2.0. The models keep their own licenses; NOTICE has the details.
@@ -383,7 +383,7 @@ def main(a, ask=tty_ask) -> int:
                 name, force = picked.config.name, not picked.fits
         resolved, _, _ = setup(argparse.Namespace(config=name, set=None, param=None, force=force, use_installed=picked is None))
     except (ResolveError, ValueError) as e:
-        say(str(e))
+        error(str(e))
         return _cancel(home, a, 2)
     config = resolved.config
     builds = any("audiocpp_dir" in e.params for e in resolved.engines.values())
@@ -432,7 +432,7 @@ def main(a, ask=tty_ask) -> int:
         dropped = lifecycle.record(home, now)
         lifecycle.prune(dropped, [now, lifecycle.load_state(home)["previous"]])
     except (InstallError, EngineError, subprocess.CalledProcessError, OSError) as e:
-        say(f"{e}\nRun the installer again to carry on from here.")
+        error(f"{e}\nRun the installer again to carry on from here.")
         return 1
     except KeyboardInterrupt:
         say("\nStopped. Run the installer again to carry on from here.")

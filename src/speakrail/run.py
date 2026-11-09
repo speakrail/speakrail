@@ -109,15 +109,15 @@ def main(args) -> int:
         if stored:
             resolved, _, _ = setup(args, benchmark=stored)
     except (ResolveError, ValueError) as e:
-        say(str(e))
+        ui.error(e)
         return 2
     home, _ = paths()
     say(explain(resolved))
     if (problem := missing_voice(resolved)):
-        say(problem)
+        ui.error(problem)
         return 2
     if not port_free(CFG.ui_port):
-        say(ui_port_taken(CFG.ui_port))
+        ui.error(ui_port_taken(CFG.ui_port))
         return 2
     stop = threading.Event()
     stack = None
@@ -131,6 +131,7 @@ def main(args) -> int:
     engines = list(resolved.engines.values())
     stack = Stack(sup, engines, {e.id: resolved.params.get(e.id, {}) for e in engines}, resolved.config.memory_peak_gib, idle_minutes(resolved.hardware) * 60, say=say)
     harness = control = None
+    clean = False                                # what "Stopped." says at the end: on purpose, or after an error
     url = f"http://{CFG.ui_host}:{CFG.ui_port}/"
     token = api_token(home)
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -141,6 +142,7 @@ def main(args) -> int:
         stack.load(force=getattr(args, "force", False))
         urls = {role: sup.url(e.id) for role, e in resolved.engines.items()}
         if stop.is_set():
+            clean = True
             return 0
         if not stored and not args.no_bench:
             say("Measuring this machine, under a minute...")
@@ -175,25 +177,27 @@ def main(args) -> int:
                 say(f"The harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")
                 return 1
             if stop.is_set():
+                clean = True
                 return 0
             if time.monotonic() - t0 > 120:
-                say("The harness didn't come up in 120 s")
+                ui.error("The harness didn't come up in 120 s")
                 return 1
             time.sleep(0.2)
         if stack.state != READY:
-            say(f"Stopping: {stack.error}")
+            ui.error(stack.error)
             return 1
         say(f"\n{service.READY_LINE}: {url}\nAPI (GPT-Live over WebSocket): ws://{CFG.ui_host}:{CFG.ui_port}/v1/live/sessions, with the token in {home / 'config' / 'api_token'}\nStop it with: speakrail stop")
         stack.set_sessions(0)                    # the idle clock starts now
         stack.start_monitor()
         while not stop.is_set():
             if harness.poll() is not None:
-                say(f"Stopping: the harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")
+                ui.error(f"The harness exited with code {harness.returncode}; see {log_dir / 'harness.log'}")
                 return 1
             stop.wait(0.5)
+        clean = True
         return 0
     except Refused as e:
-        say(e.message)
+        ui.error(e.message)
         return 2 if e.code == "not_enough_memory" else 1
     finally:
         service.remove_host_file()
@@ -210,7 +214,7 @@ def main(args) -> int:
         sup.close()
         if control:
             control.shutdown()
-        say("Stopped.")
+        say("Stopped." if clean else "Stopped because of the error above.")
 
 
 def _phrases_ready(env, resolved) -> bool:
@@ -229,7 +233,7 @@ def bench_main(args) -> int:
     try:
         resolved, _, _ = setup(args)
     except (ResolveError, ValueError) as e:
-        say(str(e))
+        ui.error(e)
         return 2
     home, _ = paths()
     sup = Supervisor(on_event=lambda e, s, d: say(f"[{e}] {s}{': ' + d if d else ''}"))
@@ -239,7 +243,7 @@ def bench_main(args) -> int:
         urls = {role: sup.url(e.id) for role, e in resolved.engines.items()}
         result = asyncio.run(bench.run(urls, resolved.engines["tts"].harness.get("model", ""), tts_worker=resolved.engines["tts"].harness.get("worker", "pocket")))
     except EngineError as e:
-        say(str(e))
+        ui.error(e)
         return 1
     finally:
         sup.close()

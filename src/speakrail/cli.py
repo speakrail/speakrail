@@ -189,6 +189,7 @@ def main(argv=None) -> int:
     ver.add_argument("--quick", action="store_true", help="one tape instead of all of them")
     ver.add_argument("--tapes", help="a folder of tapes (.wav + .json) instead of verify/tapes")
     ver.add_argument("--out", help="where the report goes, instead of <home>/verify/<config>-<time>")
+    ver.add_argument("--param", action="append", metavar="ENGINE:KEY=VALUE", help="override an engine param for this run, for example to give vLLM what a smaller card would; the report lists it")
     un = top.add_parser("uninstall", help="remove Speakrail from this machine")
     un.add_argument("--yes", action="store_true", help="no questions")
     un.add_argument("--keep-models", action="store_true", help="leave the downloaded models where they are")

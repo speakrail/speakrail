@@ -1,0 +1,109 @@
+# The NVIDIA setup for cards with 12 GB (RTX 3060 12 GB, 4070, 5070, ...). The 16 GB setup with a smaller recognizer and a shorter context.
+#
+# The same model as nvidia-e4b-16gb: Gemma 4 E4B with the Speakrail LoRA, its per-layer embeddings (5.25 GiB) in pinned host memory
+# (cpu_offload_gb, through the patched image of llm/vllm-docker), Pocket speaking on the CPU. What changes to fit 12 GB:
+# - Voxtral q4_k instead of q8, the file the Mac setup runs: about 2 GB less, with the same turn head (q4_k doesn't hurt it).
+# - vLLM gets about 5.6 GiB of the 11.76 GiB it sees on a 12 GB card, so the KV cache is smaller and the context is 48k, not 128k.
+# What it needs from the machine besides the GPU: about 6 GB of RAM that stays pinned while it runs, as for the 16 GB setup.
+#
+# Replies are greedy and decisions have no bias, as this checkpoint was benchmarked.
+name = "nvidia-e4b-12gb"
+status = "experimental"
+description = "Gemma E4B on vLLM with its per-layer embeddings in host memory and a 48k context, Voxtral q4, Pocket on the CPU, on one 12 GB NVIDIA GPU"
+platform = "cuda"
+priority = 5
+memory_peak_gib = 10.6    # all processes, measured with vLLM given the same GiB on a 24 GB card: 10.51 above idle. It leaves a desktop about 1.4 GB
+disk_gib = 15.5          # the models; the images are another 35 GB
+
+[engines]
+asr = "asr/audiocpp-docker"
+tts = "tts/pocket-docker"
+llm = "llm/vllm-docker"
+
+[harness]
+tokenizer_dir = "${models}/speakrail-e4b/tokenizer"
+voice = "jane"            # one of Pocket's built-in voices
+llm_lora = "speakrail"
+llm_base_model = "speakrail-base"
+turn_k = 1                # all_ant80 was benchmarked at K=1
+spec = true
+ant4 = ""                 # on audio.cpp its confirming peek collides with the LLM and TTS starting: 936/1477 ms to the ear with it, 731/1302 without
+peek_frames = 10
+notes = true
+tool_hold_ms = 300
+
+[params."asr/audiocpp-docker"]
+gguf_file = "voxtral-mini-4b-realtime-2602-q4_k.gguf"
+
+[params."llm/vllm-docker"]
+model_dir = "speakrail-e4b/model"
+adapter_dir = "speakrail-e4b/adapter"
+cpu_offload_gb = "6"     # the 5.25 GiB PLE table goes to pinned host memory: 5.2 GiB less on the GPU, no measurable cost to the time to first token
+max_model_len = "49152"   # 48k tokens: about an hour and a half of conversation at the 500 tokens a minute the test recordings grow by
+gpu_share = "0.48"       # about 5.6 GiB of the 11.76 GiB vLLM sees on a 12 GB card: weights and graphs 4.5, KV cache 1.1, which holds about 61k tokens (1.25 x the context)
+
+[run]
+phrase_cache = true
+
+[[download]]
+repo = "speakrail/speakrail-voxtral-realtime-2602-turnhead-2611"    # the all_ant80 head
+revision = "f0cfe64e4941c95d3cac650bd7773ea0f75b284c"
+include = ["turn_head.vxth", "turn_head.vxth.json"]
+to = "turn_head"
+
+[[download]]
+repo = "audio-cpp/audio.cpp-gguf"
+revision = "fd2fe4c3195bc410f8b817bf7c7519fd822686fb"              # the q4_k the Mac setup was measured with
+from = "Voxtral-Mini-4B-Realtime-2602-GGUF"
+include = ["voxtral-mini-4b-realtime-2602-q4_k.gguf"]
+to = "voxtral"
+
+[[download]]
+repo = "audio-cpp/audio.cpp-gguf"
+revision = "661a224e9d9adbd49c01626f85e426f5f425d771"               # the model file has changed since; this is the one measured
+from = "PocketTTS-GGUF/english"
+include = ["pocket-tts-english-q8_0.gguf", "embeddings/jane.safetensors"]
+to = "pocket/english"
+
+[[download]]                  # Google's weights, which we don't re-host; [[patch]] writes our rows into them
+repo = "google/gemma-4-E4B-it-qat-w4a16-ct"
+revision = "6cd26aaa2357fb2bad8c51699a7558a4d1a965bb"
+include = ["config.json", "generation_config.json", "processor_config.json", "model.safetensors"]
+to = "speakrail-e4b/model"
+
+[[download]]
+repo = "speakrail/gemma-4-E4B-it-qat-Speakrail-181026"
+revision = "41d5549664bd1422f679bb32c3e83ebee9b896ee"
+include = ["adapter_model.safetensors", "adapter_config.json"]
+to = "speakrail-e4b/adapter"
+
+[[download]]
+repo = "speakrail/gemma-4-E4B-it-qat-Speakrail-181026"
+revision = "41d5549664bd1422f679bb32c3e83ebee9b896ee"
+include = ["token_rows.safetensors"]
+to = "speakrail-e4b"
+
+[[download]]
+repo = "speakrail/gemma-4-E4B-it-qat-Speakrail-181026"
+revision = "41d5549664bd1422f679bb32c3e83ebee9b896ee"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-e4b/tokenizer"
+
+[[download]]                  # vLLM serves the model folder, so it needs the same tokenizer
+repo = "speakrail/gemma-4-E4B-it-qat-Speakrail-181026"
+revision = "41d5549664bd1422f679bb32c3e83ebee9b896ee"
+from = "tokenizer"
+include = ["*"]
+to = "speakrail-e4b/model"
+
+[[patch]]
+weights = "speakrail-e4b/model/model.safetensors"
+rows = "speakrail-e4b/token_rows.safetensors"
+sha256 = "93382a46d8276fc2aab461ad02a2dffc212b7e8a67923117e4667d7ca42ff897"
+
+[evidence]
+machine = "RTX 4090 with vLLM limited to what a 12 GB card gives it (gpu_share 0.240 there), Linux. Not yet on a real 12 GB card"
+date = "2026-11-08"
+tapes = "speakrail verify 0.2.0: 5 synthetic tapes, 28 of 28 checks, 14 replies; every engine check; decisions 118 of 118 the same as nvidia-e4b-16gb"
+last_word_to_ear_ms = "650/1170"

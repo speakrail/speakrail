@@ -70,7 +70,7 @@ speakrail verify --config nvidia-e4b-12gb
 | interruption | the user cutting in stops it, and the new question gets answered |
 | tools | it calls the shopping list and notes tools when asked |
 
-Pass or fail is about that behaviour and those answers. Latency and memory depend on the hardware, so `verify` measures and reports them but never fails on them: use its peak memory for `memory_peak_gib` (round up). `--quick` plays only the first tape, for a fast check that an install works.
+Pass or fail is about that behaviour and those answers. Latency and memory depend on the hardware, so `verify` measures and reports them but never fails on them: use its peak memory for `memory_peak_gib` (round up). `--quick` plays only the first tape, for a fast check that an install works. `--param ENGINE:KEY=VALUE` changes an engine param for that run, and the report lists it: for example `--param llm/vllm-docker:gpu_share=0.240` gives vLLM on a 24 GB card the GiB that `0.48` gives it on a 12 GB one, for a first measurement before a real 12 GB card.
 
 The report lands in `~/.speakrail/verify/<config>-<time>/`: `report.md` (this machine, the exact versions of everything that ran, every check with its detail) and `report.json`, plus each tape's events for debugging.
 

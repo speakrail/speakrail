@@ -32,7 +32,7 @@ RULES = [
     (r"^(Speakrail is ready)(: )(.*)$", lambda m: _c(GREEN + BOLD, m[1]) + m[2] + _links(m[3])),
     (r"^(Stop it with: )(.*)$", lambda m: _c(GREY, m[1]) + _c(WHITE + BOLD, m[2])),
     (r"^API \(.*$", lambda m: _links(_c(GREY, m[0]).replace(RESET, "") + RESET)),
-    (r"^\[([a-z]+/[^\]]+)\] (\w+)(.*)$", lambda m: _c(PINK, f"[{m[1]}]") + " " + _state(m[2]) + _c(GREY, m[3])),                      # an engine's state
+    (r"^\[([a-z]+/[^\]]+)\] (\w+)(.*)$", lambda m: _c(PINK, f"[{m[1]}]") + " " + _state(m[2]) + _c(RED if m[2] == "failed" else GREY, m[3])),   # an engine's state; why it failed is the part to read
     (r"^(ok)(\s+)(.*)$", lambda m: _c(GREEN, m[1]) + m[2] + m[3]),                                                              # doctor
     (r"^(warn)(\s+)(.*)$", lambda m: _c(YELLOW, m[1]) + m[2] + _c(YELLOW, m[3])),
     (r"^(FAIL)(\s+)(.*)$", lambda m: _c(RED + BOLD, m[1]) + m[2] + _c(RED, m[3])),
@@ -41,6 +41,10 @@ RULES = [
     (r"^\d+ problems? to fix\.$", lambda m: _c(RED + BOLD, m[0])),
     (r"^(Warning:?)(\s+)(.*)$", lambda m: _c(YELLOW + BOLD, m[1]) + m[2] + _c(YELLOW, m[3])),                                   # sections of status and explain
     (r"^(Error)(\s+)(.*)$", lambda m: _c(RED + BOLD, m[1]) + m[2] + _c(RED, m[3])),
+    (r"^Stopped because of the error above\.$", lambda m: _c(RED, m[0])),
+    (r"^(FAIL)(:.*)$", lambda m: _c(RED + BOLD, m[1]) + _c(RED, m[2])),                                                              # verify
+    (r"^(PASS)(:.*)$", lambda m: _c(GREEN + BOLD, m[1]) + m[2]),
+    (r"^(\s+)(FAIL)( .*)$", lambda m: m[1] + _c(RED + BOLD, m[2]) + _c(RED, m[3])),
     (r"^(Engines)(\s+)(\w+)(.*)$", lambda m: _c(PINK + BOLD, m[1]) + m[2] + _state(m[3]) + m[4]),
     (r"^(Machine|Config|Memory|Engines|Idle|Benchmark|Installs|Models|Images|Build|Path)(\s+)(.*)$", lambda m: _c(PINK + BOLD, m[1]) + m[2] + m[3]),
     (r"^(Features|Warnings|Not chosen|Licenses)$", lambda m: _c(PINK + BOLD, m[0])),
@@ -57,6 +61,7 @@ RULES = [
     (r"^(Tight on memory|This machine is|Not enough memory|Benchmark failed|Phrase cache not rendered).*$", lambda m: _c(YELLOW, m[0])),
     (r"^(Engine failed|Stopping:|The harness|It stopped|Port \d+|Voice ).*$", lambda m: _c(RED, m[0])),
     (r"^(No session for|Critically short).*$", lambda m: _c(YELLOW, m[0])),
+    (r"^( {8})(\S.*)$", lambda m: m[1] + _c(RED, m[2])),                                                                          # an error's further lines (error())
 ]
 RULES = [(re.compile(p), fn) for p, fn in RULES]
 
@@ -80,3 +85,10 @@ def paint(text: str, on: bool | None = None) -> str:
 
 def say(text: str = "") -> None:
     print(paint(text), flush=True)
+
+
+def error(text) -> None:
+    """a message that ends what was asked for: an Error label and red, so it stands out from everything printed before it. The
+    further lines are indented under it, and stay red when `speakrail start` paints them again from the log."""
+    lines = str(text).strip("\n").split("\n")
+    say("\n".join([f"Error   {lines[0]}"] + [f"        {line.strip()}" if line.strip() else "" for line in lines[1:]]))

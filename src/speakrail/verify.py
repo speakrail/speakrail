@@ -28,7 +28,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import CFG, REPO_ROOT
-from .ui import say
+from .ui import error, say
 
 TAPES = REPO_ROOT / "verify" / "tapes"
 REFERENCES = REPO_ROOT / "verify" / "fidelity"
@@ -139,7 +139,8 @@ class Memory:
 
 def start_stack(a, out: Path, port: int) -> subprocess.Popen:
     from .service import READY_LINE
-    cmd = [sys.executable, "-u", "-m", "speakrail", "run"] + (["--config", a.config] if a.config else []) + (["--force"] if a.force else [])
+    cmd = [sys.executable, "-u", "-m", "speakrail", "run"] + (["--config", a.config] if a.config else []) + (["--force"] if a.force else []) \
+        + [x for item in (getattr(a, "param", None) or []) for x in ("--param", item)]
     env = {**os.environ, "UI_PORT": str(port), "SESSIONS_DIR": str(out / "sessions"), "PYTHONPATH": os.pathsep.join(filter(None, [str(REPO_ROOT / "src"), os.environ.get("PYTHONPATH", "")]))}
     log = open(out / "run.log", "wb", buffering=0)
     p = subprocess.Popen(cmd, env=env, cwd=REPO_ROOT, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -359,6 +360,8 @@ def write_report(out: Path, r: dict) -> None:
          "## What ran", "",
          f"- Speakrail {i['speakrail']}, commit {(i['commit'] or 'unknown')[:12]}" + (" **with uncommitted changes**" if i["uncommitted_changes"] else ""),
          f"- Config `{i['config']}` ({i['config_status']}), file sha256 {i['config_sha256']}"]
+    if r.get("overrides"):
+        L.append(f"- **Params overridden on the command line:** {', '.join(f'`{o}`' for o in r['overrides'])}")
     for role, e in i["engines"].items():
         L.append(f"- {role}: `{e['id']}` (manifest {e['manifest_sha256']})" + (f", params {e['params']}" if e["params"] else "")
                  + "".join(f", image {k} {v}" for k, v in e.get("images", {}).items()))
@@ -389,23 +392,23 @@ def main(a) -> int:
     from .resolver import ResolveError
     from .run import setup
     if service.find():
-        say("Speakrail is running. Stop it first (speakrail stop): verify starts the config itself, in a known state.")
+        error("Speakrail is running. Stop it first (speakrail stop): verify starts the config itself, in a known state.")
         return 1
     names = QUICK if a.quick else sorted(p.stem for p in (Path(a.tapes) if a.tapes else TAPES).glob("*.json"))
     tapes = [json.loads(((Path(a.tapes) if a.tapes else TAPES) / f"{n}.json").read_text()) for n in names]
     if not tapes:
-        say(f"No tapes in {a.tapes or TAPES}")
+        error(f"No tapes in {a.tapes or TAPES}")
         return 1
     try:
-        resolved, _, _ = setup(argparse.Namespace(config=a.config, set=None, param=None, force=a.force))
+        resolved, _, _ = setup(argparse.Namespace(config=a.config, set=None, param=getattr(a, "param", None), force=a.force))
     except (ResolveError, ValueError) as e:
-        say(str(e))
+        error(str(e))
         return 2
     stamp = time.strftime("%Y%m%d-%H%M%S")
     out = Path(a.out) if a.out else Path(CFG.home) / "verify" / f"{resolved.config.name}-{stamp}"
     out.mkdir(parents=True, exist_ok=True)
     say(f"Verifying {resolved.config.name} with {len(tapes)} tape{'s' if len(tapes) != 1 else ''}; the report goes to {out}")
-    r = {"date": time.strftime("%Y-%m-%d %H:%M:%S"), "system": system_info(), "install": install_info(resolved), "tapes": names}
+    r = {"date": time.strftime("%Y-%m-%d %H:%M:%S"), "system": system_info(), "install": install_info(resolved), "tapes": names, "overrides": list(getattr(a, "param", None) or [])}
     port, mem, p, recs = _free_port(), Memory(), None, {}
     try:
         say("Starting it, as `speakrail run` would (the first start also measures this machine)...")
@@ -428,7 +431,7 @@ def main(a) -> int:
                     say(f"  FAIL {c['check']}: {c['detail']}")
         r["checks"] = checks
     except (RuntimeError, OSError, asyncio.TimeoutError) as e:
-        say(f"Verify couldn't finish: {e}")
+        error(f"Verify couldn't finish: {e}")
         r.setdefault("startup_s", 0.0); r.setdefault("conformance", [])
         r["checks"] = r.get("checks", []) + [{"tape": "-", "at": None, "check": "run", "ok": False, "detail": str(e)[:300]}]
     finally:

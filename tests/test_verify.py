@@ -112,6 +112,30 @@ def test_the_shipped_tapes_are_whole():
         assert d["labels"] and all(lb["kind"] in ("reply", "hold", "backchannel", "interrupt") for lb in d["labels"]), t.name
 
 
+def test_params_reach_the_stack_it_starts():
+    """--param has to reach the `speakrail run` verify starts, not only the report: a 12 GB check on a bigger card depends on it"""
+    import argparse, subprocess, tempfile
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake(cmd, **kw):
+        seen["cmd"] = cmd
+        raise Stop
+    real, subprocess.Popen = subprocess.Popen, fake
+    try:
+        a = argparse.Namespace(config="c", force=False, param=["llm/vllm-docker:gpu_share=0.27", "asr/x:threads=2"])
+        try:
+            verify.start_stack(a, Path(tempfile.mkdtemp()), 1)
+        except Stop:
+            pass
+    finally:
+        subprocess.Popen = real
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("run"):] == ["run", "--config", "c", "--param", "llm/vllm-docker:gpu_share=0.27", "--param", "asr/x:threads=2"], cmd
+
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     bad = 0

@@ -1,6 +1,6 @@
 # Speakrail
 
-A full-duplex voice assistant that runs on one NVIDIA GPU with 16 GB or more, or on an Apple Silicon Mac.
+A full-duplex voice assistant that runs on one NVIDIA GPU with 12 GB or more, or on an Apple Silicon Mac.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/speakrail/speakrail/main/install.sh | sh
@@ -59,6 +59,7 @@ The one-liner above is all you need; `install.sh --help` lists its options. Whic
 | `nvidia-12b-24gb`         | NVIDIA, 24 GB and up               | Breeze TTS 2 (non-commercial)                          | 16k tokens  |
 | `nvidia-e4b-16gb`         | NVIDIA, 16 GB and up               | Pocket TTS                                             | 128k tokens |
 | `nvidia-12b-24gb-highctx` | NVIDIA, 24 GB and up, by name only | Pocket TTS: a worse voice, for eight times the context | 128k tokens |
+| `nvidia-e4b-12gb`         | NVIDIA, 12 GB and up, by name only | Pocket TTS, with Voxtral q4                            | 48k tokens  |
 | `mac-e4b`                 | Apple Silicon, 16 GB and up        | Pocket TTS                                             | 16k tokens  |
 
 The setup picked at install is the one `speakrail start` runs; `speakrail start --config NAME` runs another one once, and `speakrail install` picks again. If the recommended one was picked, every start chooses again, so a new recommended setup comes with an update. `speakrail config` shows what it would run here and why. The first start measures the machine, a minute or two. `speakrail status`, `speakrail logs` and `speakrail stop` do what they say, and `speakrail doctor` checks the installation.

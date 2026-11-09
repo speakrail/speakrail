@@ -21,3 +21,4 @@ Replies are greedy and decisions have no bias unless a config says otherwise. Th
 | `nvidia-12b-24gb` | NVIDIA, 24 GB and up | 12B, Voxtral q8, Breeze (non-commercial) | 22.9 GB | 736/1327 ms |
 | `nvidia-e4b-16gb` | NVIDIA, 16 GB and up | E4B with its per-layer embeddings in host memory and a 128k context, Voxtral q8, Pocket on the CPU | 13.8 GB | 537/1130 ms |
 | `nvidia-12b-24gb-highctx` (experimental) | NVIDIA, 24 GB and up | 12B with a 128k context, Voxtral q8, Pocket on the CPU: a worse voice for eight times the context | 22.7 GB | 576/1463 ms (2 recordings) |
+| `nvidia-e4b-12gb` (experimental) | NVIDIA, 12 GB and up | E4B with its per-layer embeddings in host memory and a 48k context, Voxtral q4, Pocket on the CPU | 10.6 GB | 650/1170 ms (verify; vLLM held to a 12 GB card's share on a 4090) |
