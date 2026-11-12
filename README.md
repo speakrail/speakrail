@@ -12,6 +12,20 @@ https://github.com/user-attachments/assets/4d73f149-2d94-4bf6-b0a8-76be4b8a1840
 
 Speakrail listens while it talks. You can interrupt it, say "mm-hmm" without stopping it, pause mid-sentence without being cut off, and ask it to count your reps while you keep talking.
 
+## Disk space for installation
+
+The installer shows the model download size for the setup you pick before it downloads the weights. Models go in `~/.speakrail/models` by default. Use `--models` to put them on a different drive. Allow extra space for the app, its dependencies, and any container images.
+
+- **Windows with WSL 2.** Run the installer from your Linux distribution with Docker Desktop's WSL integration enabled. The default model folder is inside the distribution's virtual disk. Check free space on the Windows drive that holds it. `df -h` inside WSL can report more space than the Windows drive has available. To put the models directly on another Windows drive, pass `--models /mnt/d/speakrail-models`, for example. Docker Desktop stores images separately, so check the drive that holds its disk image as well. [WSL disk space](https://learn.microsoft.com/en-us/windows/wsl/disk-space) · [Docker Desktop WSL storage](https://docs.docker.com/desktop/features/wsl/)
+- **Linux.** Check free space on the model filesystem and the filesystem used by Docker. `df -h "$HOME"` checks the default model location, and `docker info --format '{{.DockerRootDir}}'` reports Docker's root directory. If both are on the same filesystem, leave room for the combined usage.
+- **Apple Silicon macOS.** Check free space on the model volume and the volume holding `~/.speakrail`, which also holds the Python environments and local build files. The macOS setup runs without Docker.
+
+For example, to store models on a different drive from WSL, run this inside your Linux distribution:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/speakrail/speakrail/main/install.sh | sh -s -- --models /mnt/d/speakrail-models
+```
+
 ## How it works
 
 ```
